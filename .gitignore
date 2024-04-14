@@ -1,0 +1,10 @@
+/target
+/.idea
+.DS_Store
+data/SPX/output/*
+data/BTCUSD/output/*
+!data/SPX/output/.gitkeep
+!data/BTCUSD/output/.gitkeep
+*.log
+plpl.log
+.env
