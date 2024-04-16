@@ -140,8 +140,6 @@ impl<'a> WebSockets<'a> {
     fn handle_msg(&mut self, msg: &str) -> DreamrunnerResult<()> {
         let value: serde_json::Value = serde_json::from_str(msg)?;
         if let Some(data) = value.get("data") {
-            // self.handle_msg(&data.to_string()).await?;
-            // return Ok(());
             let msg = &data.to_string();
             let value: serde_json::Value = serde_json::from_str(msg)?;
             if let Ok(events) = serde_json::from_value::<Events>(value) {

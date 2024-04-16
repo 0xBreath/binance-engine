@@ -115,6 +115,7 @@ impl PlotHDA {
                         &reversal.day,
                         None,
                         None,
+                        None
                     );
                     if (prev_candle.date < cycle_date && candle.date >= cycle_date)
                         && ticker_data.candle_is_reversal(
@@ -146,7 +147,7 @@ impl PlotHDA {
                 }
                 for filter_year in filter_years.iter() {
                     // candle date X years back
-                    let cycle_date = Time::new(*filter_year, &date.month, &date.day, None, None);
+                    let cycle_date = Time::new(*filter_year, &date.month, &date.day, None, None, None);
                     // found candle in previous year on this date
                     let prev_candle = ticker_data
                         .candles

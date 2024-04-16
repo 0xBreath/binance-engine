@@ -1,7 +1,7 @@
 use crate::errors::{DreamrunnerError, DreamrunnerResult};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use time_series::precise_round;
+use time_series::{trunc, Time};
 
 #[derive(Deserialize, Clone)]
 pub struct Empty {}
@@ -403,10 +403,10 @@ impl AccountUpdateEvent {
         let free_base = base.free.parse::<f64>()?;
         let locked_base = base.locked.parse::<f64>()?;
         Ok(Assets {
-            free_quote: precise_round!(free_quote, 5),
-            locked_quote: precise_round!(locked_quote, 5),
-            free_base: precise_round!(free_base, 5),
-            locked_base: precise_round!(locked_base, 5),
+            free_quote: trunc!(free_quote, 5),
+            locked_quote: trunc!(locked_quote, 5),
+            free_base: trunc!(free_base, 5),
+            locked_base: trunc!(locked_base, 5),
         })
     }
 }
@@ -796,6 +796,32 @@ pub struct Kline {
 
     #[serde(skip, rename = "B")]
     pub ignore_me: String,
+}
+
+#[derive(Debug)]
+pub struct KlineInfo {
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub close_time: String,
+    pub is_final_bar: bool,
+    pub interval: String,
+}
+
+impl Kline {
+    pub fn info(&self) -> anyhow::Result<KlineInfo> {
+        let close_time = Time::from_unix_ms(self.close_time).to_string();
+        Ok(KlineInfo {
+            open: self.open.parse::<f64>()?,
+            high: self.high.parse::<f64>()?,
+            low: self.low.parse::<f64>()?,
+            close: self.close.parse::<f64>()?,
+            close_time,
+            is_final_bar: self.is_final_bar,
+            interval: self.interval.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,7 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// Event for a single candlestick for a given ticker.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Candle {
     /// UNIX timestamp in seconds
     pub date: Time,

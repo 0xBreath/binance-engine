@@ -1,9 +1,12 @@
+use std::collections::VecDeque;
 use crate::utils::*;
 use binance_lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{precise_round, Candle};
+use time_series::{trunc, Candle, Time};
+use crate::dreamrunner::Dreamrunner;
+use crate::utils::{Source, Signal};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -12,10 +15,13 @@ pub struct Engine {
   pub base_asset: String,
   pub quote_asset: String,
   pub ticker: String,
+  pub equity_pct: f64,
   pub active_order: ActiveOrder,
   pub assets: Assets,
-  pub prev_candle: Option<Candle>,
-  pub candle: Option<Candle>,
+  /// Last N candles from current candle.
+  /// 0th index is current candle, Nth index is oldest candle.
+  pub candles: VecDeque<Candle>,
+  pub dreamrunner: Dreamrunner
 }
 
 impl Engine {
@@ -26,20 +32,23 @@ impl Engine {
     base_asset: String,
     quote_asset: String,
     ticker: String,
+    equity_pct: f64,
+    wma_period: usize,
+    dreamrunner: Dreamrunner
   ) -> Self {
     let active_order = ActiveOrder::new();
-    let prev_candle: Option<Candle> = None;
-    let candle: Option<Candle> = None;
+    let candles = VecDeque::with_capacity(wma_period + 1);
     Self {
       client,
       recv_window,
       base_asset,
       quote_asset,
       ticker,
+      equity_pct,
       active_order,
       assets: Assets::default(),
-      prev_candle,
-      candle,
+      candles,
+      dreamrunner
     }
   }
 
@@ -55,7 +64,7 @@ impl Engine {
     let req = trade.request();
     self.client.post_signed::<T>(API::Spot(Spot::Order), req).await
   }
-
+  
   pub async fn trade_or_reset<T: DeserializeOwned>(&mut self, trade: BinanceTrade) -> DreamrunnerResult<T> {
     match self.trade::<T>(trade.clone()).await {
       Ok(res) => Ok(res),
@@ -72,8 +81,8 @@ impl Engine {
       }
     }
   }
-
-  fn trade_qty(&self, side: Side, candle: &Candle) -> DreamrunnerResult<f64> {
+  
+  fn trade_qty(&self, side: Side, price: f64) -> DreamrunnerResult<f64> {
     let assets = self.assets();
     info!(
         "{}, Free: {}, Locked: {}  |  {}, Free: {}, Locked: {}",
@@ -84,78 +93,86 @@ impl Engine {
         assets.free_base,
         assets.locked_base
     );
-    let long_qty = assets.free_quote / candle.close * 0.95;
-    let short_qty = assets.free_base * 0.95;
+    let long_qty = assets.free_quote / price * (self.equity_pct / 100_f64);
+    let short_qty = assets.free_base * (self.equity_pct / 100_f64);
 
     Ok(match side {
-      Side::Long => precise_round!(long_qty, 2),
-      Side::Short => precise_round!(short_qty, 2)
+      Side::Long => trunc!(long_qty, 2),
+      Side::Short => trunc!(short_qty, 2)
     })
   }
 
-  fn long_order(&mut self, candle: &Candle, timestamp: String) -> DreamrunnerResult<OrderBuilder> {
-      let long_qty = self.trade_qty(Side::Long, candle)?;
-      let limit = precise_round!(candle.close, 2);
-      let entry = BinanceTrade::new(
-        self.ticker.to_string(),
-        format!("{}-{}", timestamp, "ENTRY"),
-        Side::Long,
-        OrderType::Limit,
-        long_qty,
-        Some(limit),
-        None,
-        None,
-        Some(10000),
-      );
-      Ok(OrderBuilder {
-        entry,
-      })
+  fn long_order(&mut self, price: f64, time: Time) -> DreamrunnerResult<OrderBuilder> {
+    let long_qty = self.trade_qty(Side::Long, price)?;
+    let limit = trunc!(price, 2);
+    let timestamp = time.to_unix_ms();
+    let entry = BinanceTrade::new(
+      self.ticker.to_string(),
+      format!("{}-{}", timestamp, "ENTRY"),
+      Side::Long,
+      OrderType::Limit,
+      long_qty,
+      Some(limit),
+      None,
+      None,
+      Some(10000),
+    );
+    Ok(OrderBuilder {
+      entry,
+    })
   }
 
-  fn short_order(&mut self, candle: &Candle, timestamp: String) -> DreamrunnerResult<OrderBuilder> {
-      let short_qty = self.trade_qty(Side::Short, candle)?;
-      let limit = precise_round!(candle.close, 2);
-      let entry = BinanceTrade::new(
-        self.ticker.to_string(),
-        format!("{}-{}", timestamp, "ENTRY"),
-        Side::Short,
-        OrderType::Limit,
-        short_qty,
-        Some(limit),
-        None,
-        None,
-        Some(10000),
-      );
-      Ok(OrderBuilder {
-        entry,
-      })
+  fn short_order(&mut self, price: f64, time: Time) -> DreamrunnerResult<OrderBuilder> {
+    let short_qty = self.trade_qty(Side::Short, price)?;
+    let limit = trunc!(price, 2);
+    let timestamp = time.to_unix_ms();
+    let entry = BinanceTrade::new(
+      self.ticker.to_string(),
+      format!("{}-{}", timestamp, "ENTRY"),
+      Side::Short,
+      OrderType::Limit,
+      short_qty,
+      Some(limit),
+      None,
+      None,
+      Some(10000),
+    );
+    Ok(OrderBuilder {
+      entry,
+    })
   }
 
-  pub async fn handle_signal(&mut self, candle: &Candle, timestamp: String, side: Side) -> DreamrunnerResult<()> {
-    let order_builder = match side {
-      Side::Long => self.long_order(candle, timestamp)?,
-      Side::Short => self.short_order(candle, timestamp)?,
-    };
-    self.active_order.add_entry(order_builder.entry.clone());
-    self.trade_or_reset::<LimitOrderResponse>(order_builder.entry).await?;
-    Ok(())
+  pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
+    match signal {
+      Signal::Long((price, time)) => {
+        let order = self.long_order(price, time)?;
+        self.active_order.add_entry(order.entry.clone());
+        self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
+        info!("✅ Long");
+        Ok(())
+      },
+      Signal::Short((price, time)) => {
+        let order = self.short_order(price, time)?;
+        self.active_order.add_entry(order.entry.clone());
+        self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
+        info!("❌ Short");
+        Ok(())
+      },
+      Signal::None => Ok(())
+    }
   }
-
-  // TODO: add trading strategy here
-  pub fn process_candle(&mut self, prev_candle: &Candle, candle: &Candle) -> DreamrunnerResult<()> {
-    let timestamp = candle.date.to_unix_ms().to_string();
-    // if self.active_order.entry.is_none() {
-    //   let plpl = self.plpl_system.closest_plpl(candle)?;
-    //   if self.plpl_system.long_signal(prev_candle, candle, plpl) {
-    //     // if position is None, enter Long
-    //     // else ignore signal and let active trade play out
-    //     self.handle_signal(candle, timestamp, Side::Long)?;
-    //   } else if self.plpl_system.short_signal(prev_candle, candle, plpl) {
-    //     // if position is None, enter Short
-    //     // else ignore signal and let active trade play out
-    //     self.handle_signal(candle, timestamp, Side::Short)?;
-    //   }
-    // }
+  
+  pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
+    // push to 0th index of VecDeque "candle"
+    self.candles.push_front(candle);
+    
+    if self.active_order.entry.is_none() {
+      let signal = self.dreamrunner.signal(self.candles.clone())?;
+      if Signal::None != signal {
+        info!("{}", signal.print());
+        self.handle_signal(signal).await?;
+      }
+    }
     Ok(())
   }
 
@@ -205,7 +222,7 @@ impl Engine {
         .get_signed::<Vec<CoinInfo>>(API::Savings(Sapi::AllCoins), Some(req)).await
   }
 
-  /// Get price of a single symbol
+  /// Get price of the ticker
   pub async fn price(&self) -> DreamrunnerResult<f64> {
     let req = Price::request(self.ticker.to_string());
     let res = self
@@ -292,12 +309,12 @@ impl Engine {
       }
       _ => debug!("Unknown order id: {}", id),
     }
-    info!("{:#?}", event);
+    debug!("{:#?}", event);
     Ok(())
   }
 
   fn trade_pnl(&self, entry: &TradeInfo, exit: &TradeInfo) -> DreamrunnerResult<f64> {
-    Ok(precise_round!(
+    Ok(trunc!(
         match entry.side {
             Side::Long => {
                 (exit.price - entry.price) / entry.price * 100_f64
@@ -339,16 +356,16 @@ impl Engine {
     let base_balance = assets.free_base;
 
     let sum = quote_balance + base_balance;
-    let equal = precise_round!(sum / 2_f64, 2);
-    let quote_diff = precise_round!(quote_balance - equal, 2);
-    let base_diff = precise_round!(base_balance - equal, 2);
+    let equal = trunc!(sum / 2_f64, 2);
+    let quote_diff = trunc!(quote_balance - equal, 2);
+    let base_diff = trunc!(base_balance - equal, 2);
     let min_notional = 0.001;
 
     // buy BTC
     if quote_diff > 0_f64 && quote_diff > min_notional {
       let timestamp = BinanceTrade::get_timestamp()?;
       let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_QUOTE");
-      let long_qty = precise_round!(quote_diff, 2);
+      let long_qty = trunc!(quote_diff, 2);
       info!(
           "Quote asset too high = {} {}, 50/50 = {} {}, buy base asset = {} {}",
           quote_balance * price,
@@ -379,7 +396,7 @@ impl Engine {
     if base_diff > 0_f64 && base_diff > min_notional {
       let timestamp = BinanceTrade::get_timestamp()?;
       let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_BASE");
-      let short_qty = precise_round!(base_diff, 2);
+      let short_qty = trunc!(base_diff, 2);
       info!(
           "Base asset too high = {} {}, 50/50 = {} {}, sell base asset = {} {}",
           base_balance, self.base_asset, equal, self.base_asset, short_qty, self.base_asset

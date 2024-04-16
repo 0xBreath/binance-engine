@@ -266,6 +266,7 @@ impl PlotPFS {
                         &date.day,
                         None,
                         None,
+                        None
                     );
                     // if cycle_date is leap day
                     if cycle_date.month.to_num() == 2 && cycle_date.day.to_num() == 29 {

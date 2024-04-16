@@ -21,6 +21,7 @@ pub struct Time {
     pub day: Day,
     pub hour: Option<u32>,
     pub minute: Option<u32>,
+    pub second: Option<u32>,
 }
 
 impl From<DateTime<Utc>> for Time {
@@ -31,6 +32,7 @@ impl From<DateTime<Utc>> for Time {
             day: Day::from_num(dt.day()),
             hour: Some(dt.hour()),
             minute: Some(dt.minute()),
+            second: Some(dt.second()),
         }
     }
 }
@@ -42,6 +44,7 @@ impl Time {
         day: &Day,
         hour: Option<u32>,
         minute: Option<u32>,
+        second: Option<u32>
     ) -> Self {
         Self {
             year,
@@ -49,6 +52,7 @@ impl Time {
             day: *day,
             hour,
             minute,
+            second
         }
     }
 
@@ -59,6 +63,7 @@ impl Time {
             day: Day::from_num(dt.day()),
             hour: Some(dt.hour()),
             minute: Some(dt.minute()),
+            second: Some(dt.second()),
         }
     }
 
@@ -99,6 +104,7 @@ impl Time {
             day,
             hour: None,
             minute: None,
+            second: None
         }
     }
 
@@ -113,17 +119,19 @@ impl Time {
             day,
             hour: None,
             minute: None,
+            second: None
         }
     }
 
     pub fn to_string(&self) -> String {
         format!(
-            "{}-{}-{}.{}.{}",
+            "{}-{}-{}.{}h.{}m.{}s",
             self.year,
             self.month.to_string(),
             self.day.to_string(),
             self.hour.unwrap_or(0),
-            self.minute.unwrap_or(0)
+            self.minute.unwrap_or(0),
+            self.second.unwrap_or(0)
         )
     }
 
@@ -179,7 +187,7 @@ impl Time {
         let month = Month::from_abbrev(month_abbrev);
 
         let day = &date[(month_delim + 5)..];
-        Time::new(year, &month, &Day::from_string(day), None, None)
+        Time::new(year, &month, &Day::from_string(day), None, None, None)
     }
     /// Convert `chrono::DateTime` to `Time`
     pub fn today() -> Self {
@@ -189,7 +197,8 @@ impl Time {
         let day = Day::from_num(date.naive_utc().day());
         let hour = date.naive_utc().hour();
         let minute = date.naive_utc().minute();
-        Time::new(year, &month, &day, Some(hour), Some(minute))
+        let second = date.naive_utc().second();
+        Time::new(year, &month, &day, Some(hour), Some(minute), Some(second))
     }
     /// Increment Time by a number of days
     pub fn delta_date(&self, days: i64) -> Self {
@@ -207,7 +216,7 @@ impl Time {
         let year = date.year();
         let month = Month::from_num(date.month());
         let day = Day::from_num(date.day());
-        Time::new(year, &month, &day, None, None)
+        Time::new(year, &month, &day, None, None, None)
     }
 
     /// Check if Time is within range of dates
@@ -237,7 +246,19 @@ impl Time {
         let day = Day::from_num(date.naive_utc().day());
         let hour = date.naive_utc().hour();
         let minute = date.naive_utc().minute();
-        Time::new(year, &month, &day, Some(hour), Some(minute))
+        let second = date.naive_utc().second();
+        Time::new(year, &month, &day, Some(hour), Some(minute), Some(second))
+    }
+    
+    pub fn from_unix_ms(unix: i64) -> Self {
+        let date = Utc.timestamp_millis_opt(unix).unwrap();
+        let year = date.naive_utc().year();
+        let month = Month::from_num(date.naive_utc().month());
+        let day = Day::from_num(date.naive_utc().day());
+        let hour = date.naive_utc().hour();
+        let minute = date.naive_utc().minute();
+        let second = date.naive_utc().second();
+        Time::new(year, &month, &day, Some(hour), Some(minute), Some(second))
     }
 
     pub fn to_unix(&self) -> i64 {
@@ -259,7 +280,8 @@ impl Time {
         let day = Day::from_num(date.naive_utc().day());
         let hour = date.naive_utc().hour();
         let minute = date.naive_utc().minute();
-        Time::new(year, &month, &day, Some(hour), Some(minute))
+        let second = date.naive_utc().second();
+        Time::new(year, &month, &day, Some(hour), Some(minute), Some(second))
     }
 
     /// Increment Time by a number of months
@@ -296,6 +318,7 @@ impl Time {
             &Day::from_num(day),
             self.hour,
             self.minute,
+            self.second
         ))
     }
 }

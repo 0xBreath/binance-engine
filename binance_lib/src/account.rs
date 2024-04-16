@@ -2,7 +2,7 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::precise_round;
+use time_series::trunc;
 
 #[derive(Clone)]
 pub struct Account {
@@ -165,9 +165,9 @@ impl Account {
         let base_balance = assets.free_base;
 
         let sum = quote_balance + base_balance;
-        let equal = precise_round!(sum / 2_f64, 2);
-        let quote_diff = precise_round!(quote_balance - equal, 2);
-        let base_diff = precise_round!(base_balance - equal, 2);
+        let equal = trunc!(sum / 2_f64, 2);
+        let quote_diff = trunc!(quote_balance - equal, 2);
+        let base_diff = trunc!(base_balance - equal, 2);
         let min_notional = 0.001;
         info!("sum: {}", sum);
         info!("equal: {}", equal);
@@ -178,7 +178,7 @@ impl Account {
         if quote_diff > 0_f64 && quote_diff > min_notional {
             let timestamp = BinanceTrade::get_timestamp()?;
             let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_QUOTE");
-            let long_qty = precise_round!(quote_diff, 2);
+            let long_qty = trunc!(quote_diff, 2);
             info!("long_qty: {}", long_qty);
             info!(
                 "Quote asset too high = {} {}, 50/50 = {} {}, buy base asset = {} {}",
@@ -210,7 +210,7 @@ impl Account {
         if base_diff > 0_f64 && base_diff > min_notional {
             let timestamp = BinanceTrade::get_timestamp()?;
             let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_BASE");
-            let short_qty = precise_round!(base_diff, 2);
+            let short_qty = trunc!(base_diff, 2);
             info!(
                 "Base asset too high = {} {}, 50/50 = {} {}, sell base asset = {} {}",
                 base_balance, self.base_asset, equal, self.base_asset, short_qty, self.base_asset
