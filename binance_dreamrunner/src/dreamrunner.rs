@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use log::{info, warn};
 use time_series::{Candle, trunc};
 use crate::kagi::Kagi;
-use crate::utils::{Source, Signal};
+use crate::utils::{Source, Signal, RollingCandles};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Dreamrunner {
@@ -22,26 +22,29 @@ impl Default for Dreamrunner {
 }
 
 impl Dreamrunner {
-  pub fn signal(&self, candles: VecDeque<Candle>) -> anyhow::Result<Signal> {
-    if candles.len() < 3 {
-      warn!("Insufficient candles to generate Kagis");
+  pub fn signal(&self, kagi: &mut Kagi, candles: &RollingCandles) -> anyhow::Result<Signal> {
+    if candles.vec.len() < 3 {
+      warn!("Insufficient candles to generate kagis");
       return Ok(Signal::None);
     }
-    if candles.len() < candles.capacity() {
+    if candles.vec.len() < candles.capacity {
       warn!("Insufficient candles to generate WMA");
       return Ok(Signal::None);
     }
-    info!("len: {}, cap: {}", candles.len(), candles.capacity());
-    let c_0 = candles[0];
-    let c_1 = candles[1];
-    let c_2 = candles[2];
-    let k_0 = Kagi::new(self.k_rev, &c_0, &c_1);
-    info!("kagi: {:#?}", k_0);
-    let k_1 = Kagi::new(self.k_rev, &c_1, &c_2);
-    let period_from_curr: Vec<&Candle> = candles.range(0..candles.len() - 1).collect();
-    let period_from_prev: Vec<&Candle> = candles.range(1..candles.len()).collect();
+    let c_0 = candles.vec[0];
+    // old kagi
+    let k_1 = *kagi;
+    // new kagi
+    let k_0 = Kagi::update(kagi, self.k_rev, &c_0);
+    // update kagi
+    kagi.line = k_0.line;
+    kagi.direction = k_0.direction;
+    
+    info!("{:#?}", k_0);
+    let period_from_curr: Vec<&Candle> = candles.vec.range(0..candles.vec.len() - 1).collect();
+    let period_from_prev: Vec<&Candle> = candles.vec.range(1..candles.vec.len()).collect();
     let wma_0 = self.wma(&period_from_curr);
-    info!("wma: {}", wma_0);
+    info!("WMA: {}", trunc!(wma_0, 3));
     let wma_1 = self.wma(&period_from_prev);
 
     let x = wma_0 > k_0.line;
@@ -61,6 +64,18 @@ impl Dreamrunner {
     }
   }
 
+  /// pinescript WMA source code:
+  /// ```pinescript
+  /// x = close // Source
+  /// y = 5 // MA Period
+  /// norm = 0.0
+  /// sum = 0.0
+  /// for i = 0 to y - 1
+  ///    weight = (y - i) * y
+  ///    norm := norm + weight
+  ///    sum := sum + x[i] * weight
+  /// sum / norm
+  /// ```
   pub fn wma(&self, candles: &[&Candle]) -> f64 {
     let mut norm = 0.0;
     let mut sum = 0.0;
@@ -76,6 +91,6 @@ impl Dreamrunner {
       norm += weight;
       sum += src * weight;
     }
-    trunc!(sum / norm, 2)
+    sum / norm
   }
 }

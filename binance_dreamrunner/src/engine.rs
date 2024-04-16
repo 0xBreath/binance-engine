@@ -6,11 +6,13 @@ use serde::de::DeserializeOwned;
 use std::time::SystemTime;
 use time_series::{trunc, Candle, Time};
 use crate::dreamrunner::Dreamrunner;
-use crate::utils::{Source, Signal};
+use crate::kagi::{Kagi, KagiDirection};
+use crate::utils::Signal;
 
 #[derive(Clone)]
 pub struct Engine {
   pub client: Client,
+  pub disable_trading: bool,
   pub recv_window: u64,
   pub base_asset: String,
   pub quote_asset: String,
@@ -20,34 +22,39 @@ pub struct Engine {
   pub assets: Assets,
   /// Last N candles from current candle.
   /// 0th index is current candle, Nth index is oldest candle.
-  pub candles: VecDeque<Candle>,
+  pub candles: RollingCandles,
+  pub kagi: Kagi,
   pub dreamrunner: Dreamrunner
 }
 
 impl Engine {
-  #[allow(dead_code)]
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     client: Client,
     recv_window: u64,
+    disable_trading: bool,
     base_asset: String,
     quote_asset: String,
     ticker: String,
     equity_pct: f64,
     wma_period: usize,
-    dreamrunner: Dreamrunner
+    dreamrunner: Dreamrunner,
   ) -> Self {
-    let active_order = ActiveOrder::new();
-    let candles = VecDeque::with_capacity(wma_period + 1);
     Self {
       client,
       recv_window,
+      disable_trading,
       base_asset,
       quote_asset,
       ticker,
       equity_pct,
-      active_order,
+      active_order: ActiveOrder::new(),
       assets: Assets::default(),
-      candles,
+      candles: RollingCandles::new(wma_period + 1),
+      kagi: Kagi {
+        direction: KagiDirection::Up,
+        line: 0.0
+      },
       dreamrunner
     }
   }
@@ -163,14 +170,16 @@ impl Engine {
   }
   
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
-    // push to 0th index of VecDeque "candle"
-    self.candles.push_front(candle);
+    // pushes to front of VecDeque and pops the back if at capacity
+    self.candles.push(candle);
     
     if self.active_order.entry.is_none() {
-      let signal = self.dreamrunner.signal(self.candles.clone())?;
+      let signal = self.dreamrunner.signal(&mut self.kagi, &self.candles)?;
       if Signal::None != signal {
         info!("{}", signal.print());
-        self.handle_signal(signal).await?;
+        if !self.disable_trading {
+          self.handle_signal(signal).await?;
+        }
       }
     }
     Ok(())
@@ -239,7 +248,7 @@ impl Engine {
       .client
       .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
     // order by time
-    orders.sort_by(|a, b| a.update_time.partial_cmp(&b.update_time).unwrap());
+    orders.sort_by(|a, b| b.update_time.cmp(&a.update_time));
     Ok(orders)
   }
 

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use binance_lib::*;
 use log::*;
 use simplelog::{
@@ -27,6 +28,12 @@ pub fn init_logger(log_file: &PathBuf) -> anyhow::Result<()> {
 
 pub fn is_testnet() -> DreamrunnerResult<bool> {
   std::env::var("TESTNET")?
+    .parse::<bool>()
+    .map_err(DreamrunnerError::ParseBool)
+}
+
+pub fn disable_trading() -> DreamrunnerResult<bool> {
+  std::env::var("DISABLE_TRADING")?
     .parse::<bool>()
     .map_err(DreamrunnerError::ParseBool)
 }
@@ -160,5 +167,26 @@ impl Signal {
       Signal::Short((price, _)) => Some(*price),
       Signal::None => None
     }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct RollingCandles {
+  pub vec: VecDeque<Candle>,
+  pub capacity: usize,
+}
+impl RollingCandles {
+  pub fn new(capacity: usize) -> Self {
+    Self {
+      vec: VecDeque::with_capacity(capacity),
+      capacity,
+    }
+  }
+  
+  pub fn push(&mut self, candle: Candle) {
+    if self.vec.len() == self.capacity {
+      self.vec.pop_back();
+    }
+    self.vec.push_front(candle);
   }
 }

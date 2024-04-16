@@ -16,11 +16,9 @@ use engine::*;
 use utils::*;
 use crate::dreamrunner::Dreamrunner;
 
-// Binance Spot Test Network API credentials
-#[allow(dead_code)]
+// Binance spot TEST network
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
-// Binance Spot Live Network API credentials
-#[allow(dead_code)]
+// Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 pub const KLINE_STREAM: &str = "solusdt@kline_30m";
 pub const BASE_ASSET: &str = "SOL";
@@ -42,6 +40,7 @@ async fn main() -> DreamrunnerResult<()> {
   let equity_pct = 95.0;
 
   let testnet = is_testnet()?;
+  let disable_trading = disable_trading()?;
 
   let client = match is_testnet()? {
     true => Client::new(
@@ -71,6 +70,7 @@ async fn main() -> DreamrunnerResult<()> {
   let mut engine = Engine::new(
     client,
     10000,
+    disable_trading,
     BASE_ASSET.to_string(),
     QUOTE_ASSET.to_string(),
     TICKER.to_string(),
@@ -87,12 +87,13 @@ async fn main() -> DreamrunnerResult<()> {
   // cancel all open orders to start with a clean slate
   engine.cancel_all_open_orders().await?;
   // equalize base and quote assets to 50/50
-  // engine.equalize_assets().await?;
+  if !disable_trading {
+    engine.equalize_assets().await?;
+  }
   // get initial asset balances
   engine.update_assets().await?;
   engine.log_assets();
-
-  let mut prev_is_last_bar = Mutex::new(false);
+  
   let engine = Mutex::new(engine);
   let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
     let now = SystemTime::now();
@@ -131,25 +132,15 @@ async fn main() -> DreamrunnerResult<()> {
 
     match event {
       WebSocketEvent::Kline(kline_event) => {
-        let mut prev_is_last_bar = tokio::task::block_in_place(|| {
-          Handle::current().block_on(async {
-            prev_is_last_bar.lock().await
-          })
-        });
         // only accept if this candle is at the end of the bar period
         if kline_event.kline.is_final_bar {
-          *prev_is_last_bar = true;
-
           let candle = kline_to_candle(&kline_event)?;
-          info!("kline: {:#?}", kline_event.kline.info()?);
+          info!("{:#?}", kline_event.kline.info()?);
           tokio::task::block_in_place( || {
             Handle::current().block_on(async {
               engine.process_candle(candle).await
             })
           })?;
-        }
-        if !kline_event.kline.is_final_bar {
-          *prev_is_last_bar = false;
         }
       }
       WebSocketEvent::AccountUpdate(account_update) => {

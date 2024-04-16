@@ -804,22 +804,18 @@ pub struct KlineInfo {
     pub high: f64,
     pub low: f64,
     pub close: f64,
-    pub close_time: String,
-    pub is_final_bar: bool,
-    pub interval: String,
+    pub open_time: String,
 }
 
 impl Kline {
     pub fn info(&self) -> anyhow::Result<KlineInfo> {
-        let close_time = Time::from_unix_ms(self.close_time).to_string();
+        let open_time = Time::from_unix_ms(self.open_time).to_string();
         Ok(KlineInfo {
             open: self.open.parse::<f64>()?,
             high: self.high.parse::<f64>()?,
             low: self.low.parse::<f64>()?,
             close: self.close.parse::<f64>()?,
-            close_time,
-            is_final_bar: self.is_final_bar,
-            interval: self.interval.clone(),
+            open_time,
         })
     }
 }
