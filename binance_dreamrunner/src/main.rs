@@ -38,6 +38,7 @@ async fn main() -> DreamrunnerResult<()> {
   
   let wma_period = 5;
   let equity_pct = 95.0;
+  let min_notional = 5.0; // $5 USD is the minimum SOL that can be traded
 
   let testnet = is_testnet()?;
   let disable_trading = disable_trading()?;
@@ -74,6 +75,7 @@ async fn main() -> DreamrunnerResult<()> {
     BASE_ASSET.to_string(),
     QUOTE_ASSET.to_string(),
     TICKER.to_string(),
+    min_notional,
     equity_pct,
     wma_period,
     Dreamrunner::default()

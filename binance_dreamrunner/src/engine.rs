@@ -17,6 +17,7 @@ pub struct Engine {
   pub base_asset: String,
   pub quote_asset: String,
   pub ticker: String,
+  pub min_notional: f64,
   pub equity_pct: f64,
   pub active_order: ActiveOrder,
   pub assets: Assets,
@@ -36,6 +37,7 @@ impl Engine {
     base_asset: String,
     quote_asset: String,
     ticker: String,
+    min_notional: f64,
     equity_pct: f64,
     wma_period: usize,
     dreamrunner: Dreamrunner,
@@ -47,6 +49,7 @@ impl Engine {
       base_asset,
       quote_asset,
       ticker,
+      min_notional,
       equity_pct,
       active_order: ActiveOrder::new(),
       assets: Assets::default(),
@@ -368,10 +371,9 @@ impl Engine {
     let equal = trunc!(sum / 2_f64, 2);
     let quote_diff = trunc!(quote_balance - equal, 2);
     let base_diff = trunc!(base_balance - equal, 2);
-    let min_notional = 0.001;
 
     // buy BTC
-    if quote_diff > 0_f64 && quote_diff > min_notional {
+    if quote_diff > 0_f64 && quote_diff > self.min_notional {
       let timestamp = BinanceTrade::get_timestamp()?;
       let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_QUOTE");
       let long_qty = trunc!(quote_diff, 2);
@@ -402,7 +404,7 @@ impl Engine {
     }
 
     // sell BTC
-    if base_diff > 0_f64 && base_diff > min_notional {
+    if base_diff > 0_f64 && base_diff > self.min_notional {
       let timestamp = BinanceTrade::get_timestamp()?;
       let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_BASE");
       let short_qty = trunc!(base_diff, 2);
