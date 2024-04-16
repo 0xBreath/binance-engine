@@ -14,6 +14,8 @@ BINANCE_LIVE_API_KEY=something
 BINANCE_LIVE_API_SECRET=something
 # true if using testnet Binance or Alpaca, false if live (real money!)
 TESTNET=true
+# true if want to read data on live network but not trade
+DISABLE_TRADE=false
 ```
 
 ### Create Binance Test API Key
