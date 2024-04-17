@@ -20,7 +20,7 @@ use crate::dreamrunner::Dreamrunner;
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
 // Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
-pub const KLINE_STREAM: &str = "solusdt@kline_1m";
+pub const KLINE_STREAM: &str = "solusdt@kline_30m";
 pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";
@@ -35,7 +35,7 @@ async fn main() -> DreamrunnerResult<()> {
   let binance_test_api_secret = std::env::var("BINANCE_TEST_API_SECRET")?;
   let binance_live_api_key = std::env::var("BINANCE_LIVE_API_KEY")?;
   let binance_live_api_secret = std::env::var("BINANCE_LIVE_API_SECRET")?;
-  
+
   let wma_period = 5;
   let equity_pct = 95.0;
   let min_notional = 5.0; // $5 USD is the minimum SOL that can be traded
@@ -83,9 +83,9 @@ async fn main() -> DreamrunnerResult<()> {
     }
     Result::<_, anyhow::Error>::Ok(())
   });
-  
+
   let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
-  
+
   tokio::task::spawn(async move {
     let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
       match event {
@@ -101,7 +101,7 @@ async fn main() -> DreamrunnerResult<()> {
         _ => Ok(()),
       }
     });
-  
+
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
     match ws.connect_multiple_streams(&subs, testnet) {
       Err(e) => {
@@ -113,11 +113,11 @@ async fn main() -> DreamrunnerResult<()> {
         Ok(())
       },
     }?;
-    
+
     if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
       error!("🛑Binance websocket error: {:#?}", e);
     }
-  
+
     Result::<_, anyhow::Error>::Ok(())
   });
 
@@ -134,6 +134,6 @@ async fn main() -> DreamrunnerResult<()> {
     Dreamrunner::default()
   );
   engine.ignition().await?;
-  
+
   Ok(())
 }
