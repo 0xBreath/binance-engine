@@ -122,6 +122,7 @@ async fn main() -> DreamrunnerResult<()> {
         }
         Err(e) => error!("🛑 Error on user stream keep alive: {}", e),
       }
+      
       *keep_alive = now;
     }
 

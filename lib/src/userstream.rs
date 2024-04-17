@@ -18,7 +18,7 @@ impl UserStream {
 
     // Current open orders on a symbol
     pub async fn keep_alive(&self, listen_key: &str) -> DreamrunnerResult<Success> {
-        debug!("Keeping user data stream alive");
+        info!("Keep user data stream alive");
         self.client.put(API::Spot(Spot::UserDataStream), listen_key).await
     }
 

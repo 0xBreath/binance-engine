@@ -7,6 +7,7 @@ use log::*;
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::SystemTime;
 use tungstenite::handshake::client::Response;
 use tungstenite::protocol::WebSocket;
 use tungstenite::stream::MaybeTlsStream;
@@ -63,6 +64,7 @@ pub struct WebSockets<'a> {
     pub socket: Option<(WebSocket<MaybeTlsStream<TcpStream>>, Response)>,
     handler: Callback<'a>,
     testnet: bool,
+    last_ping: SystemTime
 }
 
 impl<'a> Drop for WebSockets<'a> {
@@ -93,6 +95,7 @@ impl<'a> WebSockets<'a> {
             socket: None,
             handler: Box::new(handler),
             testnet,
+            last_ping: SystemTime::now()
         }
     }
 
@@ -167,6 +170,13 @@ impl<'a> WebSockets<'a> {
     pub fn event_loop(&mut self, running: &AtomicBool) -> DreamrunnerResult<()> {
         while running.load(Ordering::Relaxed) {
             if let Some(ref mut socket) = self.socket {
+                let now = SystemTime::now();
+                if now.duration_since(self.last_ping)?.as_secs() > 30 {
+                    info!("Sending websocket ping");
+                    socket.0.write_message(Message::Ping(vec![]))?;
+                    self.last_ping = now;
+                }
+                
                 let message = socket.0.read_message()?;
                 match message {
                     Message::Text(msg) => match self.handle_msg(&msg) {
@@ -178,13 +188,18 @@ impl<'a> WebSockets<'a> {
                         }
                     },
                     Message::Ping(_) => {
-                        debug!("Received websocket ping");
+                        info!("Received websocket ping");
                         match socket.0.write_message(Message::Pong(vec![])) {
-                            Ok(_) => {}
+                            Ok(_) => {
+                                info!("Replied with pong");
+                            }
                             Err(e) => return Err(DreamrunnerError::Tungstenite(e)),
                         }
                     }
-                    Message::Pong(_) | Message::Binary(_) | Message::Frame(_) => return Ok(()),
+                    Message::Pong(_) => {
+                        info!("Received websocket pong");
+                    }
+                    Message::Binary(_) | Message::Frame(_) => return Ok(()),
                     Message::Close(e) => {
                         return match e {
                             Some(e) => Err(DreamrunnerError::Custom(e.to_string())),
