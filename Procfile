@@ -1,1 +1,1 @@
-web: ./target/release/dreamrunner
+worker: ./target/release/dreamrunner
