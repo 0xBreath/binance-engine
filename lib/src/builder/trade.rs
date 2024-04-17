@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::model::{OrderType, Side};
 use crate::errors::{DreamrunnerResult};
 use std::time::{SystemTime, UNIX_EPOCH};

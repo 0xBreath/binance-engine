@@ -8,6 +8,7 @@ use simplelog::{
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
+use lib::BinanceTrade;
 use time_series::{Candle, Time};
 
 pub fn init_logger(log_file: &PathBuf) -> anyhow::Result<()> {
@@ -135,6 +136,7 @@ impl ActiveOrder {
   }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Source {
   Open,
@@ -161,6 +163,8 @@ impl Signal {
       Signal::None => "No signal".to_string()
     }
   }
+  
+  #[allow(dead_code)]
   pub fn price(&self) -> Option<f64> {
     match self {
       Signal::Long((price, _)) => Some(*price),

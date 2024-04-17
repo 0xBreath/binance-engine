@@ -388,7 +388,7 @@ impl SquareOfNine {
       match point.harmonic {
         None => {
           match point.arc {
-            None => println!("{:?}\t{:?}\t\t\t{}\r", point.value, point.harmonic, "-"),
+            None => println!("{:?}\t{:?}\t\t\t-\r", point.value, point.harmonic),
             Some(arc) => println!("{:?}\t{:?}\t\t\t{:?}\r", point.value, point.harmonic, arc),
           }
         },

@@ -31,45 +31,57 @@ See top of page "Log In with GitHub" to create an API key.
 
 ### Setup Google Cloud VM
 ```bash
+# switch to root
+sudo 
+
 # GitHub, manage terminal processes, and Cargo build dependencies
-sudo apt install -y git screen build-essential libsasl2-dev pkg-config libfontconfig libfontconfig1-dev
+sudo apt install -y git screen build-essential libsasl2-dev pkg-config libssl-dev libfontconfig1 libfontconfig1-dev
 
 # Install Rust
 curl https://sh.rustup.rs -sSf | sh
+# set PATH to include cargo
+. "$HOME/.cargo/env"
+
+cd /var/lib
+mkdir data
+cd data
 
 # Set GitHub remote
-git remote add origin https://github.com/LunarEngine/lunar_engine.git
+git init
+git remote add origin https://github.com/cosmic-lab-inc/lunar-engine.git
 git reset --hard origin/main
 git pull origin main
 
+# create ENV
+touch .env
+nano .env
+# fill with ENV variables...
+
 # Create a screen to run the algorithm
-screen -R plpl
+screen -R dreamrunner
 
 # Start the algorithm on Binance
-cargo run -r -p binance_plpl
-
-# Start the algorithm on Alpaca
-cargo run -r -p alpaca_plpl
+cargo run -r -p dreamrunner
 
 # Exit screen with Ctrl+A then D
 
 # Print logs on the main screen
-cat plpl.log
+cat dreamrunner.log
 # Follow logs on the main screen
-tail -f plpl.log
+tail -f dreamrunner.log
 
 # To reenter the screen
-screen -r plpl
+screen -r dreamrunner
 
 # To kill the screen
-screen -X -S plpl quit
+screen -X -S dreamrunner quit
 ```
 
 ### Create Release Tag
+Create a release tag and push to GitHub:
 ```bash
 git tag -a tag-name -m 'tag-message'
 
 git push origin tag-name
-
-# Go to GitHub and create a release
 ```
+Go to GitHub and publish a release.

@@ -3,10 +3,7 @@ use dotenv::dotenv;
 use log::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::runtime::Handle;
-use time_series::{trunc, Time};
+use std::time::{Duration, SystemTime};
 
 mod engine;
 mod utils;
@@ -81,7 +78,7 @@ async fn main() -> DreamrunnerResult<()> {
       }
       tokio::time::sleep(Duration::new(1, 0)).await;
     }
-    Result::<_, anyhow::Error>::Ok(())
+    DreamrunnerResult::<_>::Ok(())
   });
 
   let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
@@ -103,32 +100,21 @@ async fn main() -> DreamrunnerResult<()> {
     });
 
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
-    match ws.connect_multiple_streams(&subs, testnet) {
-      Err(e) => {
+    
+    let connect_ws = |ws: &mut WebSockets| {
+      if let Err(e) = ws.connect_multiple_streams(&subs, testnet) {
         error!("🛑Failed to connect Binance websocket: {}", e);
-        Err(e)
+        return Err(e);
       }
-      Ok(_) => {
-        info!("Binance websocket connected");
-        Ok(())
-      },
-    }?;
+      Ok(())
+    };
+    connect_ws(&mut ws)?;
 
     if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
       error!("🛑Binance websocket error: {:#?}", e);
-      match ws.connect_multiple_streams(&subs, testnet) {
-        Err(e) => {
-          error!("🛑Failed to reconnect Binance websocket: {}", e);
-          Err(e)
-        }
-        Ok(_) => {
-          info!("Reconnected Binance websocket");
-          Ok(())
-        },
-      }?;
+      connect_ws(&mut ws)?;
     };
-
-    Result::<_, anyhow::Error>::Ok(())
+    DreamrunnerResult::<_>::Ok(())
   });
 
   let mut engine = Engine::new(

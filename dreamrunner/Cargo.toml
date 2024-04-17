@@ -2,22 +2,17 @@
 name = "dreamrunner"
 version = { workspace = true }
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# internal deps
-time_series = { path = "../time_series" }
-lib = { path = "../lib" }
-# external deps
-tokio = { version = "1.24.1", features = ["full"] }
-log = "0.4"
-simplelog = "0.12.0"
-chrono = "0.4.22"
-lazy_static = "1.4.0"
-time = "0.3.14"
+anyhow = { workspace = true }
+chrono = { workspace = true }
 crossbeam = "0.8.2"
-colored = "2.0.4"
-serde = { version = "1.0", features = ["derive"] }
-dotenv = "0.15.0"
-anyhow = "1.0.75"
+dotenv = { workspace = true }
+lib = { path = "../lib" }
+log = { workspace = true }
+serde = { workspace = true }
+simplelog = { workspace = true }
+time = { workspace = true }
+time_series = { path = "../time_series" }
+tokio = { workspace = true }

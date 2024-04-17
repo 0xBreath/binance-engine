@@ -5,25 +5,25 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4"
-anyhow = "1.0.75"
+actix-web = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+dotenv = { workspace = true }
+error-chain = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
 lib = { path = "../lib" }
-chrono = "0.4.22"
-dotenv = "0.15.0"
-error-chain = { version = "0.12.4", default-features = false }
-futures = "0.3"
-hex = "0.4"
-hmac = "0.12.1"
-lazy_static = "1.4.0"
-log = "0.4"
-regex = "1.7.3"
-reqwest = { version = "0.11.6", features = ["blocking", "json"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10.6"
-simplelog = "0.12.0"
-time = "0.3.14"
+log = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+simplelog = { workspace = true }
+time = { workspace = true }
 time_series = { path = "../time_series" }
-tokio = { version = "1.24.1", features = ["full"] }
-tungstenite = { version = "0.18.0", features = ["native-tls"] }
-url = "2.2.2"
+tokio = { workspace = true }
+tungstenite = { workspace = true }
+url = { workspace = true }
+

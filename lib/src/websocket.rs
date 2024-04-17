@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::config::Config;
 use crate::errors::{DreamrunnerError, DreamrunnerResult};
 use crate::model::{
@@ -112,7 +114,9 @@ impl<'a> WebSockets<'a> {
     }
 
     pub fn connect_multiple_streams(&mut self, endpoints: &[String], testnet: bool) -> DreamrunnerResult<()> {
-        self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet))
+        self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet))?;
+        info!("Binance websocket connected");
+        Ok(())
     }
 
     fn connect_wss(&mut self, wss: &str) -> DreamrunnerResult<()> {
@@ -188,9 +192,9 @@ impl<'a> WebSockets<'a> {
                             }
                         }
                     },
-                    Message::Ping(_) => {
+                    Message::Ping(msg) => {
                         info!("recv ping");
-                        match socket.0.write_message(Message::Pong(vec![])) {
+                        match socket.0.write_message(Message::Pong(msg)) {
                             Ok(_) => {
                                 info!("send pong");
                             }
@@ -201,7 +205,7 @@ impl<'a> WebSockets<'a> {
                         }
                     }
                     Message::Pong(_) => {
-                        debug!("Received websocket pong");
+                        info!("recv pong");
                     }
                     Message::Binary(_) | Message::Frame(_) => return Ok(()),
                     Message::Close(e) => {

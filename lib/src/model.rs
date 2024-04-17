@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::errors::{DreamrunnerError, DreamrunnerResult};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;

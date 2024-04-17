@@ -11,6 +11,7 @@ use crate::WebSocketEvent;
 
 pub type DreamrunnerResult<T> = Result<T, DreamrunnerError>;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Error)]
 pub enum DreamrunnerError {
     #[error("BinanceContentError: {0}")]

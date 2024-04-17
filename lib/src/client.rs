@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::api::API;
 use crate::errors::{DreamrunnerResult};
 use crate::{BinanceContentError, DreamrunnerError};

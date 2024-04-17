@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use log::{info, warn};
 use time_series::{Candle, trunc};
 use crate::kagi::Kagi;

@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::DreamrunnerResult;

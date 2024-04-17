@@ -1,13 +1,11 @@
 #![allow(dead_code)]
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use crate::utils::*;
 use lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use crossbeam::channel::Receiver;
-use tokio::sync::Mutex;
 use time_series::{trunc, Candle, Time};
 use crate::dreamrunner::Dreamrunner;
 use crate::kagi::{Kagi, KagiDirection};
