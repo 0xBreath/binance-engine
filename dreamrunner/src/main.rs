@@ -2,9 +2,9 @@ use lib::*;
 use dotenv::dotenv;
 use log::*;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Handle;
 use time_series::{trunc, Time};
 
@@ -20,7 +20,7 @@ use crate::dreamrunner::Dreamrunner;
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
 // Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
-pub const KLINE_STREAM: &str = "solusdt@kline_30m";
+pub const KLINE_STREAM: &str = "solusdt@kline_1m";
 pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";
@@ -56,20 +56,74 @@ async fn main() -> DreamrunnerResult<()> {
       )?
   };
 
-  let user_stream: Mutex<UserStream> =
-    match is_testnet()? {
-      true => Mutex::new(UserStream {
-        client: client.clone(),
-        recv_window: 10000,
-      }),
-      false => Mutex::new(UserStream {
-        client: client.clone(),
-        recv_window: 10000,
-      }),
-    };
+  let user_stream = UserStream {
+    client: client.clone(),
+    recv_window: 10000,
+  };
+  let answer = user_stream.start().await?;
+  let listen_key = answer.listen_key;
+
+  let running = AtomicBool::new(true);
+  let listen_key_copy = listen_key.clone();
+  tokio::task::spawn(async move {
+    let mut last_ping = SystemTime::now();
+
+    while running.load(Ordering::Relaxed) {
+      let now = SystemTime::now();
+      // check if timestamp is 30 seconds after last UserStream keep alive ping
+      let elapsed = now.duration_since(last_ping).map(|d| d.as_secs())?;
+
+      if elapsed > 30 {
+        if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
+          error!("🛑Error on user stream keep alive: {}", e);
+        }
+        last_ping = now;
+      }
+      tokio::time::sleep(Duration::new(1, 0)).await;
+    }
+    Result::<_, anyhow::Error>::Ok(())
+  });
+  
+  let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
+  
+  tokio::task::spawn(async move {
+    let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
+      match event {
+        WebSocketEvent::Kline(_) => {
+          Ok(tx.send(event)?)
+        }
+        WebSocketEvent::AccountUpdate(_) => {
+          Ok(tx.send(event)?)
+        }
+        WebSocketEvent::OrderTrade(_) => {
+          Ok(tx.send(event)?)
+        }
+        _ => Ok(()),
+      }
+    });
+  
+    let subs = vec![KLINE_STREAM.to_string(), listen_key];
+    match ws.connect_multiple_streams(&subs, testnet) {
+      Err(e) => {
+        error!("🛑Failed to connect to Binance websocket: {}", e);
+        Err(e)
+      }
+      Ok(_) => {
+        info!("Binance websocket connected");
+        Ok(())
+      },
+    }?;
+    
+    if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
+      error!("🛑Binance websocket error: {:#?}", e);
+    }
+  
+    Result::<_, anyhow::Error>::Ok(())
+  });
 
   let mut engine = Engine::new(
     client,
+    rx,
     disable_trading,
     BASE_ASSET.to_string(),
     QUOTE_ASSET.to_string(),
@@ -79,134 +133,7 @@ async fn main() -> DreamrunnerResult<()> {
     wma_period,
     Dreamrunner::default()
   );
-
-  let user_stream_keep_alive_time = Mutex::new(SystemTime::now());
-  let user_stream = user_stream.lock().await;
-  let answer = user_stream.start().await?;
-  let listen_key = answer.listen_key;
-
-  // cancel all open orders to start with a clean slate
-  engine.cancel_all_open_orders().await?;
-  // equalize base and quote assets to 50/50
-  if !disable_trading {
-    engine.equalize_assets().await?;
-  }
-  // get initial asset balances
-  engine.update_assets().await?;
-  engine.log_assets();
+  engine.ignition().await?;
   
-  let engine = Mutex::new(engine);
-  let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
-    let now = SystemTime::now();
-    let mut keep_alive = tokio::task::block_in_place(|| {
-      Handle::current().block_on(async {
-        user_stream_keep_alive_time.lock().await
-      })
-    });
-    // check if timestamp is 30 seconds after last UserStream keep alive ping
-    let secs_since_keep_alive = now.duration_since(*keep_alive).map(|d| d.as_secs())?;
-
-    if secs_since_keep_alive > 30 {
-      if let Err(e) = tokio::task::block_in_place(|| {
-        Handle::current().block_on(async {
-          user_stream.keep_alive(&listen_key).await
-        })
-      }) {
-        error!("🛑Error on user stream keep alive: {}", e);
-      }
-      *keep_alive = now;
-    }
-
-    let mut engine = tokio::task::block_in_place(|| {
-      Handle::current().block_on(async {
-        engine.lock().await
-      })
-    });
-
-    match event {
-      WebSocketEvent::Kline(kline_event) => {
-        // only accept if this candle is at the end of the bar period
-        if kline_event.kline.is_final_bar {
-          let candle = kline_to_candle(&kline_event)?;
-          info!("{:#?}", kline_event.kline.info()?);
-          tokio::task::block_in_place(|| {
-            Handle::current().block_on(async {
-              engine.process_candle(candle).await
-            })
-          })?;
-        }
-      }
-      WebSocketEvent::AccountUpdate(account_update) => {
-        let assets = account_update.assets(&engine.quote_asset, &engine.base_asset)?;
-        info!(
-            "Account Update, {}: {}, {}: {}",
-            engine.quote_asset, assets.free_quote, engine.base_asset, assets.free_base
-        );
-      }
-      WebSocketEvent::OrderTrade(event) => {
-        let order_type = ActiveOrder::client_order_id_suffix(&event.new_client_order_id);
-        let entry_price = trunc!(event.price.parse::<f64>()?, 2);
-        info!(
-            "{},  {},  {} @ {},  Execution: {},  Status: {},  Order: {}",
-            event.symbol,
-            event.new_client_order_id,
-            event.side,
-            entry_price,
-            event.execution_type,
-            event.order_status,
-            order_type
-        );
-        // update state
-        engine.update_active_order(event)?;
-        // create or cancel orders depending on state
-        tokio::task::block_in_place(|| {
-          Handle::current().block_on(async move {
-            engine.check_active_order().await
-          })
-        })?;
-      }
-      _ => (),
-    };
-    Ok(())
-  });
-
-  let subs = vec![KLINE_STREAM.to_string(), listen_key.clone()];
-  match ws.connect_multiple_streams(&subs, testnet) {
-    Err(e) => {
-      error!("🛑Failed to connect to Binance websocket: {}", e);
-      Err(e)
-    }
-    Ok(_) => {
-      info!("Binance websocket connected");
-      Ok(())
-    },
-  }?;
-  
-  if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
-    error!("🛑Binance websocket error: {:#?}", e);
-  }
-
   Ok(())
-
-  // user_stream.close(&listen_key)?;
-  //
-  // match ws.disconnect() {
-  //     Err(e) => {
-  //         error!("🛑 Failed to disconnect from Binance websocket: {}", e);
-  //         match ws.connect_multiple_streams(&subs, testnet) {
-  //             Err(e) => {
-  //                 error!("🛑 Failed to connect to Binance websocket: {}", e);
-  //                 Err(e)
-  //             }
-  //             Ok(_) => {
-  //                 info!("Binance websocket reconnected");
-  //                 Ok(())
-  //             }
-  //         }
-  //     }
-  //     Ok(_) => {
-  //         warn!("Binance websocket disconnected");
-  //         Ok(())
-  //     }
-  // }
 }

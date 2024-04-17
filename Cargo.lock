@@ -1238,6 +1238,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "chrono",
+ "crossbeam",
  "error-chain",
  "futures",
  "hex",

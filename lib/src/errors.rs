@@ -7,6 +7,7 @@ use std::time::SystemTimeError;
 
 use actix_web::{error::ResponseError, http::StatusCode, HttpResponse};
 use thiserror::Error;
+use crate::WebSocketEvent;
 
 pub type DreamrunnerResult<T> = Result<T, DreamrunnerError>;
 
@@ -56,6 +57,8 @@ pub enum DreamrunnerError {
     ParseInt(#[from] std::num::ParseIntError),
     #[error("Anyhow: {0}")]
     Anyhow(#[from] anyhow::Error),
+    #[error("SendError: {0}")]
+    SendError(#[from] crossbeam::channel::SendError<WebSocketEvent>),
 }
 
 impl ResponseError for DreamrunnerError {
@@ -83,6 +86,7 @@ impl ResponseError for DreamrunnerError {
             Self::ExitHandlersNotBothInitialized => StatusCode::INTERNAL_SERVER_ERROR,
             Self::ParseInt(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Anyhow(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

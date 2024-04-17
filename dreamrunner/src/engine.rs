@@ -1,18 +1,21 @@
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::utils::*;
 use lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+use crossbeam::channel::Receiver;
+use tokio::sync::Mutex;
 use time_series::{trunc, Candle, Time};
 use crate::dreamrunner::Dreamrunner;
 use crate::kagi::{Kagi, KagiDirection};
 use crate::utils::Signal;
 
-#[derive(Clone)]
 pub struct Engine {
   pub client: Client,
+  pub rx: Receiver<WebSocketEvent>,
   pub disable_trading: bool,
   pub base_asset: String,
   pub quote_asset: String,
@@ -32,6 +35,7 @@ impl Engine {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     client: Client,
+    rx: Receiver<WebSocketEvent>,
     disable_trading: bool,
     base_asset: String,
     quote_asset: String,
@@ -42,7 +46,8 @@ impl Engine {
     dreamrunner: Dreamrunner,
   ) -> Self {
     Self {
-      client,
+      client: client.clone(),
+      rx,
       disable_trading,
       base_asset,
       quote_asset,
@@ -58,6 +63,57 @@ impl Engine {
       },
       dreamrunner
     }
+  }
+  
+  pub async fn ignition(&mut self) -> DreamrunnerResult<()> {
+    // cancel all open orders to start with a clean slate
+    self.cancel_all_open_orders().await?;
+    // equalize base and quote assets to 50/50
+    self.equalize_assets().await?;
+    // get initial asset balances
+    self.update_assets().await?;
+    self.log_assets();
+    
+    while let Ok(event) = self.rx.recv() {
+      match event {
+        WebSocketEvent::Kline(kline) => {
+          // only accept if this candle is at the end of the bar period
+          if kline.kline.is_final_bar {
+            let candle = kline_to_candle(&kline)?;
+            info!("{:#?}", kline.kline.info()?);
+            self.process_candle(candle).await?;
+          }
+        }
+        WebSocketEvent::AccountUpdate(account_update) => {
+          let assets = account_update.assets(&self.quote_asset, &self.base_asset)?;
+          info!(
+            "Account Update, {}: {}, {}: {}",
+            self.quote_asset, assets.free_quote, self.base_asset, assets.free_base
+          );
+        }
+        WebSocketEvent::OrderTrade(event) => {
+          let order_type = ActiveOrder::client_order_id_suffix(&event.new_client_order_id);
+          let entry_price = trunc!(event.price.parse::<f64>()?, 2);
+          info!(
+            "{},  {},  {} @ {},  Execution: {},  Status: {},  Order: {}",
+            event.symbol,
+            event.new_client_order_id,
+            event.side,
+            entry_price,
+            event.execution_type,
+            event.order_status,
+            order_type
+          );
+          // update state
+          self.update_active_order(event)?;
+          // create or cancel orders depending on state
+          self.check_active_order().await?;
+        }
+        _ => (),
+      };
+    }
+    
+    Ok(())
   }
 
   #[allow(dead_code)]
@@ -355,6 +411,9 @@ impl Engine {
   }
 
   pub async fn equalize_assets(&self) -> DreamrunnerResult<()> {
+    if self.disable_trading {
+      return Ok(());
+    }
     info!("Equalizing assets");
     let account_info = self.account_info().await?;
     let assets = account_info.account_assets(&self.quote_asset, &self.base_asset)?;
