@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use binance_lib::*;
+use lib::*;
 use log::*;
 use simplelog::{
   ColorChoice, CombinedLogger, Config as SimpleLogConfig, ConfigBuilder, TermLogger,

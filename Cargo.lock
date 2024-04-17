@@ -324,81 +324,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
-name = "binance_dreamrunner"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "binance_lib",
- "chrono",
- "colored",
- "crossbeam",
- "dotenv",
- "lazy_static",
- "log",
- "serde",
- "simplelog",
- "time",
- "time_series",
- "tokio",
-]
-
-[[package]]
-name = "binance_lib"
-version = "0.3.0"
-dependencies = [
- "actix",
- "actix-web",
- "anyhow",
- "chrono",
- "error-chain",
- "futures",
- "hex",
- "hmac",
- "lazy_static",
- "log",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "simplelog",
- "thiserror",
- "time",
- "time_series",
- "tokio",
- "tungstenite",
- "url",
-]
-
-[[package]]
-name = "binance_server"
-version = "0.3.0"
-dependencies = [
- "actix-web",
- "anyhow",
- "binance_lib",
- "chrono",
- "dotenv",
- "error-chain",
- "futures",
- "hex",
- "hmac",
- "lazy_static",
- "log",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "simplelog",
- "time",
- "time_series",
- "tokio",
- "tungstenite",
- "url",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,6 +703,25 @@ name = "dotenv"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f"
+
+[[package]]
+name = "dreamrunner"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "colored",
+ "crossbeam",
+ "dotenv",
+ "lazy_static",
+ "lib",
+ "log",
+ "serde",
+ "simplelog",
+ "time",
+ "time_series",
+ "tokio",
+]
 
 [[package]]
 name = "dwrote"
@@ -1285,6 +1229,34 @@ name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
+
+[[package]]
+name = "lib"
+version = "0.3.0"
+dependencies = [
+ "actix",
+ "actix-web",
+ "anyhow",
+ "chrono",
+ "error-chain",
+ "futures",
+ "hex",
+ "hmac",
+ "lazy_static",
+ "log",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "simplelog",
+ "thiserror",
+ "time",
+ "time_series",
+ "tokio",
+ "tungstenite",
+ "url",
+]
 
 [[package]]
 name = "libc"
@@ -1987,6 +1959,34 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "server"
+version = "0.3.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "chrono",
+ "dotenv",
+ "error-chain",
+ "futures",
+ "hex",
+ "hmac",
+ "lazy_static",
+ "lib",
+ "log",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "simplelog",
+ "time",
+ "time_series",
+ "tokio",
+ "tungstenite",
+ "url",
 ]
 
 [[package]]

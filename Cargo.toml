@@ -1,9 +1,9 @@
 [workspace]
 members = [
     "time_series",
-    "binance_dreamrunner",
-    "binance_lib",
-    "binance_server",
+    "dreamrunner",
+    "lib",
+    "server",
 ]
 
 [workspace.package]

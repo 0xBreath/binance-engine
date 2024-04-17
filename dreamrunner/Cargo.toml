@@ -1,5 +1,5 @@
 [package]
-name = "binance_dreamrunner"
+name = "dreamrunner"
 version = { workspace = true }
 edition = { workspace = true }
 
@@ -8,7 +8,7 @@ edition = { workspace = true }
 [dependencies]
 # internal deps
 time_series = { path = "../time_series" }
-binance_lib = { path = "../binance_lib" }
+lib = { path = "../lib" }
 # external deps
 tokio = { version = "1.24.1", features = ["full"] }
 log = "0.4"

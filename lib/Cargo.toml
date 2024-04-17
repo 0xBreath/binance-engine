@@ -1,5 +1,5 @@
 [package]
-name = "binance_lib"
+name = "lib"
 version = { workspace = true }
 edition = { workspace = true }
 

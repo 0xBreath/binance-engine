@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use crate::utils::*;
-use binance_lib::*;
+use lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;

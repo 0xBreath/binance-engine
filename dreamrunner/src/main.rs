@@ -1,4 +1,4 @@
-use binance_lib::*;
+use lib::*;
 use dotenv::dotenv;
 use log::*;
 use std::path::PathBuf;
@@ -104,7 +104,7 @@ async fn main() -> DreamrunnerResult<()> {
         user_stream_keep_alive_time.lock().await
       })
     });
-    // check if timestamp is 10 minutes after last UserStream keep alive ping
+    // check if timestamp is 30 seconds after last UserStream keep alive ping
     let secs_since_keep_alive = now.duration_since(*keep_alive).map(|d| d.as_secs())?;
 
     if secs_since_keep_alive > 30 {
@@ -137,7 +137,7 @@ async fn main() -> DreamrunnerResult<()> {
         if kline_event.kline.is_final_bar {
           let candle = kline_to_candle(&kline_event)?;
           info!("{:#?}", kline_event.kline.info()?);
-          tokio::task::block_in_place( || {
+          tokio::task::block_in_place(|| {
             Handle::current().block_on(async {
               engine.process_candle(candle).await
             })

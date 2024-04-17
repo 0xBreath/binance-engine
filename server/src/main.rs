@@ -4,7 +4,7 @@ extern crate lazy_static;
 use std::sync::Arc;
 use actix_web::{get, web, App, Error, HttpResponse, HttpServer, Responder, Result};
 use actix_web::web::Data;
-use binance_lib::*;
+use lib::*;
 use dotenv::dotenv;
 use log::*;
 use simplelog::{ColorChoice, Config as SimpleLogConfig, TermLogger, TerminalMode};

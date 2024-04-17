@@ -1,5 +1,5 @@
 [package]
-name = "binance_server"
+name = "server"
 version = { workspace = true }
 edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -7,7 +7,7 @@ edition = { workspace = true }
 [dependencies]
 actix-web = "4"
 anyhow = "1.0.75"
-binance_lib = { path = "../binance_lib" }
+lib = { path = "../lib" }
 chrono = "0.4.22"
 dotenv = "0.15.0"
 error-chain = { version = "0.12.4", default-features = false }

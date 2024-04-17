@@ -1,1 +1,1 @@
-web: ./target/release/binance_dreamrunner
+web: ./target/release/dreamrunner
