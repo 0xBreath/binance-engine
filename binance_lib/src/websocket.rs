@@ -7,7 +7,6 @@ use log::*;
 use serde::{Deserialize, Serialize};
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
-use futures::future::BoxFuture;
 use tungstenite::handshake::client::Response;
 use tungstenite::protocol::WebSocket;
 use tungstenite::stream::MaybeTlsStream;
@@ -58,7 +57,6 @@ pub enum WebSocketEvent {
     Kline(KlineEvent),
 }
 
-// pub type Callback = Box<dyn FnMut(WebSocketEvent) -> BoxFuture<'static, DreamrunnerResult<()>> + Send + Sync + 'static>;
 pub type Callback<'a> = Box<dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a>;
 
 pub struct WebSockets<'a> {

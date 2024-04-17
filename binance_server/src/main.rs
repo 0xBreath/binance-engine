@@ -1,7 +1,9 @@
 #[macro_use]
 extern crate lazy_static;
 
+use std::sync::Arc;
 use actix_web::{get, web, App, Error, HttpResponse, HttpServer, Responder, Result};
+use actix_web::web::Data;
 use binance_lib::*;
 use dotenv::dotenv;
 use log::*;
@@ -68,17 +70,49 @@ lazy_static! {
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     dotenv().ok();
     init_logger();
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let bind_address = format!("0.0.0.0:{}", port);
+    
+    let account = match std::env::var("TESTNET")?.parse::<bool>()? {
+        true => {
+            Account {
+                client: Client::new(
+                    Some(std::env::var("BINANCE_TEST_API_KEY")?),
+                    Some(std::env::var("BINANCE_TEST_API_SECRET")?),
+                    BINANCE_TEST_API.to_string(),
+                )?,
+                recv_window: 5000,
+                base_asset: BASE_ASSET.to_string(),
+                quote_asset: QUOTE_ASSET.to_string(),
+                ticker: TICKER.to_string(),
+            }
+        }
+        false => {
+            Account {
+                client: Client::new(
+                    Some(std::env::var("BINANCE_LIVE_API_KEY")?),
+                    Some(std::env::var("BINANCE_LIVE_API_SECRET")?),
+                    BINANCE_LIVE_API.to_string(),
+                )?,
+                recv_window: 5000,
+                base_asset: BASE_ASSET.to_string(),
+                quote_asset: QUOTE_ASSET.to_string(),
+                ticker: TICKER.to_string(),
+            }
+        }
+    };
 
-    info!("Starting Server...");
-    HttpServer::new(|| {
+    let state = Data::new(Arc::new(account));
+    
+    HttpServer::new(move || {
         App::new()
+            .app_data(Data::clone(&state))
             .service(get_assets)
+            .service(balance)
             .service(cancel_orders)
             .service(get_price)
             .service(exchange_info)
@@ -89,6 +123,7 @@ async fn main() -> std::io::Result<()> {
     .bind(bind_address)?
     .run()
     .await
+    .map_err(anyhow::Error::new)
 }
 
 fn init_logger() {
@@ -113,10 +148,18 @@ async fn get_assets() -> DreamrunnerResult<HttpResponse> {
     Ok(HttpResponse::Ok().json(res))
 }
 
+#[get("/balance")]
+async fn balance(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
+    let assets = account.assets().await?;
+    info!("Assets: {:#?}", assets);
+    let price = account.price().await?;
+    let balance = assets.balance(price);
+    Ok(HttpResponse::Ok().json(balance))
+}
+
 #[get("/cancel")]
-async fn cancel_orders() -> DreamrunnerResult<HttpResponse> {
+async fn cancel_orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     info!("Cancel all active orders");
-    let account = ACCOUNT.lock().await;
     let res = account
         .cancel_all_open_orders().await?;
     let ids = res
@@ -128,17 +171,15 @@ async fn cancel_orders() -> DreamrunnerResult<HttpResponse> {
 }
 
 #[get("/price")]
-async fn get_price() -> DreamrunnerResult<HttpResponse> {
-    let account = ACCOUNT.lock().await;
+async fn get_price(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account.price().await?;
     trace!("{:?}", res);
     Ok(HttpResponse::Ok().json(res))
 }
 
 #[get("/allOrders")]
-async fn all_orders() -> DreamrunnerResult<HttpResponse> {
+async fn all_orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     info!("Fetching all historical orders...");
-    let account = ACCOUNT.lock().await;
     let res = account
         .all_orders(account.ticker.clone()).await?;
     let last = res.last().unwrap();
@@ -150,8 +191,7 @@ async fn all_orders() -> DreamrunnerResult<HttpResponse> {
 }
 
 #[get("/openOrders")]
-async fn open_orders() -> DreamrunnerResult<HttpResponse> {
-    let account = ACCOUNT.lock().await;
+async fn open_orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
         .open_orders(account.ticker.clone()).await?;
     info!("Open orders: {:?}", res);
@@ -159,8 +199,7 @@ async fn open_orders() -> DreamrunnerResult<HttpResponse> {
 }
 
 #[get("/info")]
-async fn exchange_info() -> DreamrunnerResult<HttpResponse> {
-    let account = ACCOUNT.lock().await;
+async fn exchange_info(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let info = account
         .exchange_info(account.ticker.clone()).await?;
     Ok(HttpResponse::Ok().json(info))

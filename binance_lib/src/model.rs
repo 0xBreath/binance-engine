@@ -943,6 +943,13 @@ pub struct Assets {
     pub free_base: f64,
     pub locked_base: f64,
 }
+impl Assets {
+    pub fn balance(&self, price: f64) -> f64 {
+        let base_to_quote = (self.free_base + self.locked_base) * price;
+        let quote = self.free_quote + self.locked_quote;
+        quote + base_to_quote
+    }
+}
 
 impl Default for Assets {
     fn default() -> Self {

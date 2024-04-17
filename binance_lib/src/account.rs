@@ -65,6 +65,12 @@ impl Account {
         res
     }
 
+    pub async fn assets(&self) -> DreamrunnerResult<Assets> {
+        let account_info = self.account_info().await?;
+        let assets = account_info.account_assets(&self.quote_asset, &self.base_asset)?;
+        Ok(assets)
+    }
+
     /// Get all assets
     /// Not available on testnet
     pub async fn all_assets(&self) -> DreamrunnerResult<Vec<CoinInfo>> {

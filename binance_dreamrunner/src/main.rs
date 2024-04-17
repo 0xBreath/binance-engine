@@ -57,7 +57,7 @@ async fn main() -> DreamrunnerResult<()> {
   };
 
   let user_stream: Mutex<UserStream> =
-    match is_testnet().expect("Failed to parse env TESTNET to boolean") {
+    match is_testnet()? {
       true => Mutex::new(UserStream {
         client: client.clone(),
         recv_window: 10000,
@@ -107,7 +107,7 @@ async fn main() -> DreamrunnerResult<()> {
     // check if timestamp is 10 minutes after last UserStream keep alive ping
     let secs_since_keep_alive = now.duration_since(*keep_alive).map(|d| d.as_secs())?;
 
-    if secs_since_keep_alive > 30 * 60 {
+    if secs_since_keep_alive > 30 {
       let status = tokio::task::block_in_place(|| {
         Handle::current().block_on(async {
           user_stream.keep_alive(&listen_key).await
@@ -124,7 +124,6 @@ async fn main() -> DreamrunnerResult<()> {
       }
       *keep_alive = now;
     }
-    drop(keep_alive);
 
     let mut engine = tokio::task::block_in_place(|| {
       Handle::current().block_on(async {

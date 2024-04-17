@@ -375,6 +375,7 @@ name = "binance_server"
 version = "0.3.0"
 dependencies = [
  "actix-web",
+ "anyhow",
  "binance_lib",
  "chrono",
  "dotenv",
