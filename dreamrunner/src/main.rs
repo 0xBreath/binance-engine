@@ -70,7 +70,6 @@ async fn main() -> DreamrunnerResult<()> {
 
   let mut engine = Engine::new(
     client,
-    10000,
     disable_trading,
     BASE_ASSET.to_string(),
     QUOTE_ASSET.to_string(),
@@ -113,9 +112,8 @@ async fn main() -> DreamrunnerResult<()> {
           user_stream.keep_alive(&listen_key).await
         })
       }) {
-        error!("🛑 Error on user stream keep alive: {}", e);
+        error!("🛑Error on user stream keep alive: {}", e);
       }
-      
       *keep_alive = now;
     }
 
@@ -175,7 +173,7 @@ async fn main() -> DreamrunnerResult<()> {
   let subs = vec![KLINE_STREAM.to_string(), listen_key.clone()];
   match ws.connect_multiple_streams(&subs, testnet) {
     Err(e) => {
-      error!("🛑 Failed to connect to Binance websocket: {}", e);
+      error!("🛑Failed to connect to Binance websocket: {}", e);
       Err(e)
     }
     Ok(_) => {

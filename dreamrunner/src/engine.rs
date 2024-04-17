@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+#![allow(dead_code)]
+
 use crate::utils::*;
 use lib::*;
 use log::*;
@@ -13,7 +14,6 @@ use crate::utils::Signal;
 pub struct Engine {
   pub client: Client,
   pub disable_trading: bool,
-  pub recv_window: u64,
   pub base_asset: String,
   pub quote_asset: String,
   pub ticker: String,
@@ -32,7 +32,6 @@ impl Engine {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     client: Client,
-    recv_window: u64,
     disable_trading: bool,
     base_asset: String,
     quote_asset: String,
@@ -44,7 +43,6 @@ impl Engine {
   ) -> Self {
     Self {
       client,
-      recv_window,
       disable_trading,
       base_asset,
       quote_asset,
@@ -291,7 +289,7 @@ impl Engine {
     }
     res
   }
-
+  
   pub async fn cancel_order(&self, order_id: u64) -> DreamrunnerResult<OrderCanceled> {
     debug!("Canceling order {}", order_id);
     let req = CancelOrder::request(order_id, self.ticker.to_string(), Some(10000));
@@ -350,7 +348,7 @@ impl Engine {
             self.reset_active_order().await?;
           }
         }
-        PendingOrActiveOrder::Pending(entry) => {}
+        PendingOrActiveOrder::Pending(_) => {}
       }
     }
     Ok(())
