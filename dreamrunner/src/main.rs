@@ -105,7 +105,7 @@ async fn main() -> DreamrunnerResult<()> {
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
     match ws.connect_multiple_streams(&subs, testnet) {
       Err(e) => {
-        error!("🛑Failed to connect to Binance websocket: {}", e);
+        error!("🛑Failed to connect Binance websocket: {}", e);
         Err(e)
       }
       Ok(_) => {
@@ -116,7 +116,17 @@ async fn main() -> DreamrunnerResult<()> {
 
     if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
       error!("🛑Binance websocket error: {:#?}", e);
-    }
+      match ws.connect_multiple_streams(&subs, testnet) {
+        Err(e) => {
+          error!("🛑Failed to reconnect Binance websocket: {}", e);
+          Err(e)
+        }
+        Ok(_) => {
+          info!("Reconnected Binance websocket");
+          Ok(())
+        },
+      }?;
+    };
 
     Result::<_, anyhow::Error>::Ok(())
   });

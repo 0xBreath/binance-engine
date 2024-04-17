@@ -69,6 +69,7 @@ pub struct WebSockets<'a> {
 
 impl<'a> Drop for WebSockets<'a> {
     fn drop(&mut self) {
+        info!("Drop websocket");
         if let Some(ref mut socket) = self.socket {
             socket.0.close(None).unwrap();
         }
@@ -176,13 +177,13 @@ impl<'a> WebSockets<'a> {
                     socket.0.write_message(Message::Ping(vec![]))?;
                     self.last_ping = now;
                 }
-
-                let message = socket.0.read_message()?;
-                match message {
+                
+                match socket.0.read_message()? {
                     Message::Text(msg) => match self.handle_msg(&msg) {
                         Ok(_) => {}
                         Err(e) => {
                             if let DreamrunnerError::WebSocketDisconnected = e {
+                                error!("Websocket disconnected: {:#?}", e);
                                 return Err(e);
                             }
                         }
@@ -193,7 +194,10 @@ impl<'a> WebSockets<'a> {
                             Ok(_) => {
                                 info!("Replied with pong");
                             }
-                            Err(e) => return Err(DreamrunnerError::Tungstenite(e)),
+                            Err(e) => {
+                                error!("Failed to reply with pong: {:#?}", e);
+                                return Err(DreamrunnerError::Tungstenite(e))
+                            },
                         }
                     }
                     Message::Pong(_) => {
@@ -202,7 +206,10 @@ impl<'a> WebSockets<'a> {
                     Message::Binary(_) | Message::Frame(_) => return Ok(()),
                     Message::Close(e) => {
                         return match e {
-                            Some(e) => Err(DreamrunnerError::Custom(e.to_string())),
+                            Some(e) => {
+                                error!("Websocket closed: {:#?}", e);
+                                Err(DreamrunnerError::Custom(e.to_string()))
+                            },
                             None => Err(DreamrunnerError::WebSocketDisconnected),
                         }
                     }
