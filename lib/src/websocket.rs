@@ -173,8 +173,8 @@ impl<'a> WebSockets<'a> {
             if let Some(ref mut socket) = self.socket {
                 let now = SystemTime::now();
                 if now.duration_since(self.last_ping)?.as_secs() > 30 {
-                    info!("Sending websocket ping");
-                    socket.0.write_message(Message::Ping(vec![]))?;
+                    info!("send ping");
+                    socket.0.write_message(Message::Pong(vec![]))?;
                     self.last_ping = now;
                 }
                 
@@ -189,10 +189,10 @@ impl<'a> WebSockets<'a> {
                         }
                     },
                     Message::Ping(_) => {
-                        info!("Received websocket ping");
+                        info!("recv ping");
                         match socket.0.write_message(Message::Pong(vec![])) {
                             Ok(_) => {
-                                info!("Replied with pong");
+                                info!("send pong");
                             }
                             Err(e) => {
                                 error!("Failed to reply with pong: {:#?}", e);
@@ -201,7 +201,7 @@ impl<'a> WebSockets<'a> {
                         }
                     }
                     Message::Pong(_) => {
-                        info!("Received websocket pong");
+                        debug!("Received websocket pong");
                     }
                     Message::Binary(_) | Message::Frame(_) => return Ok(()),
                     Message::Close(e) => {

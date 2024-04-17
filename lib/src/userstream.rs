@@ -11,12 +11,10 @@ pub struct UserStream {
 }
 
 impl UserStream {
-    // User Stream
     pub async fn start(&self) -> DreamrunnerResult<UserDataStream> {
         self.client.post(API::Spot(Spot::UserDataStream)).await
     }
-
-    // Current open orders on a symbol
+    
     pub async fn keep_alive(&self, listen_key: &str) -> DreamrunnerResult<Success> {
         info!("Keep user data stream alive");
         self.client.put(API::Spot(Spot::UserDataStream), listen_key).await
