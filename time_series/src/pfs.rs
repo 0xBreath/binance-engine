@@ -5,7 +5,7 @@ use crate::{
 use std::error::Error;
 use std::fs::File;
 
-use chrono::{Duration, Local, NaiveDate, TimeZone};
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime, TimeZone};
 use log::{debug, info};
 use plotters::prelude::*;
 use std::io::Write;

@@ -176,7 +176,7 @@ impl<'a> WebSockets<'a> {
                     socket.0.write_message(Message::Ping(vec![]))?;
                     self.last_ping = now;
                 }
-                
+
                 let message = socket.0.read_message()?;
                 match message {
                     Message::Text(msg) => match self.handle_msg(&msg) {

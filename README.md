@@ -15,14 +15,21 @@ BINANCE_LIVE_API_SECRET=something
 # true if using testnet Binance or Alpaca, false if live (real money!)
 TESTNET=true
 # true if want to read data on live network but not trade
-DISABLE_TRADE=false
+DISABLE_TRADING=false
 ```
 
 ### Create Binance Test API Key
 [Binance Test Login](https://testnet.binance.vision/)
 See top of page "Log In with GitHub" to create an API key.
 
-### Steps to deploy to virtual machine
+
+### Setup Heroku
+* Configure an app with one `worker` dyno.
+* Install Rust buildpack: [link](https://github.com/emk/heroku-buildpack-rust)
+* Check all environment variables are set in "Config Vars" section under Settings.
+
+
+### Setup Google Cloud VM
 ```bash
 # GitHub, manage terminal processes, and Cargo build dependencies
 sudo apt install -y git screen build-essential libsasl2-dev pkg-config libfontconfig libfontconfig1-dev

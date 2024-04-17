@@ -1,73 +1,18 @@
-#[macro_use]
-extern crate lazy_static;
-
 use std::sync::Arc;
-use actix_web::{get, web, App, Error, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use actix_web::web::Data;
 use lib::*;
 use dotenv::dotenv;
 use log::*;
 use simplelog::{ColorChoice, Config as SimpleLogConfig, TermLogger, TerminalMode};
-use tokio::sync::Mutex;
 
-// Binance Spot Test Network API credentials
-#[allow(dead_code)]
-const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
-// Binance Spot Live Network API credentials
-#[allow(dead_code)]
-const BINANCE_LIVE_API: &str = "https://api.binance.us";
+// Binance spot TEST network
+pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
+// Binance spot LIVE network
+pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 const BASE_ASSET: &str = "SOL";
 const QUOTE_ASSET: &str = "USDT";
 const TICKER: &str = "SOLUSDT";
-
-lazy_static! {
-    static ref ACCOUNT: Mutex<Account> = match std::env::var("TESTNET")
-        .expect(
-            "ACCOUNT init failed. TESTNET environment variable must be set to either true or false"
-        )
-        .parse::<bool>()
-        .expect("Failed to parse env TESTNET to boolean")
-    {
-        true => {
-            Mutex::new(Account {
-                client: Client::new(
-                    Some(
-                        std::env::var("BINANCE_TEST_API_KEY")
-                            .expect("Failed to parse BINANCE_TEST_API_KEY from env"),
-                    ),
-                    Some(
-                        std::env::var("BINANCE_TEST_API_SECRET")
-                            .expect("Failed to parse BINANCE_TEST_API_SECRET from env"),
-                    ),
-                    BINANCE_TEST_API.to_string(),
-                ).expect("Failed to lazy init Client"),
-                recv_window: 5000,
-                base_asset: BASE_ASSET.to_string(),
-                quote_asset: QUOTE_ASSET.to_string(),
-                ticker: TICKER.to_string(),
-            })
-        }
-        false => {
-            Mutex::new(Account {
-                client: Client::new(
-                    Some(
-                        std::env::var("BINANCE_LIVE_API_KEY")
-                            .expect("Failed to parse BINANCE_LIVE_API_KEY from env"),
-                    ),
-                    Some(
-                        std::env::var("BINANCE_LIVE_API_SECRET")
-                            .expect("Failed to parse BINANCE_LIVE_API_SECRET from env"),
-                    ),
-                    BINANCE_LIVE_API.to_string(),
-                ).expect("Failed to lazy init Client"),
-                recv_window: 5000,
-                base_asset: BASE_ASSET.to_string(),
-                quote_asset: QUOTE_ASSET.to_string(),
-                ticker: TICKER.to_string(),
-            })
-        }
-    };
-}
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
@@ -141,8 +86,7 @@ async fn test() -> impl Responder {
 }
 
 #[get("/assets")]
-async fn get_assets() -> DreamrunnerResult<HttpResponse> {
-    let account = ACCOUNT.lock().await;
+async fn get_assets(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account.all_assets().await?;
     trace!("{:?}", res);
     Ok(HttpResponse::Ok().json(res))

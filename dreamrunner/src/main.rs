@@ -108,19 +108,12 @@ async fn main() -> DreamrunnerResult<()> {
     let secs_since_keep_alive = now.duration_since(*keep_alive).map(|d| d.as_secs())?;
 
     if secs_since_keep_alive > 30 {
-      let status = tokio::task::block_in_place(|| {
+      if let Err(e) = tokio::task::block_in_place(|| {
         Handle::current().block_on(async {
           user_stream.keep_alive(&listen_key).await
         })
-      });
-      match status {
-        Ok(_) => {
-          let now = Time::from_unix_msec(
-            now.duration_since(UNIX_EPOCH).unwrap().as_millis() as i64,
-          );
-          info!("Keep alive user stream @ {}", now.to_string())
-        }
-        Err(e) => error!("🛑 Error on user stream keep alive: {}", e),
+      }) {
+        error!("🛑 Error on user stream keep alive: {}", e);
       }
       
       *keep_alive = now;
@@ -191,13 +184,9 @@ async fn main() -> DreamrunnerResult<()> {
     },
   }?;
   
-  match ws.event_loop(&AtomicBool::new(true)) {
-    Err(e) => {
-      error!("🛑 Binance websocket error: {:#?}", e);
-      Err(e)
-    },
-    Ok(_) => Ok(())
-  }?;
+  if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
+    error!("🛑Binance websocket error: {:#?}", e);
+  }
 
   Ok(())
 
