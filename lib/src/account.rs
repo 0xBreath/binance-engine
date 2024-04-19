@@ -2,7 +2,8 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::trunc;
+use time_series::{trunc};
+use crate::trade::{Data, TradeInfo};
 
 #[derive(Clone)]
 pub struct Account {
@@ -89,14 +90,145 @@ impl Account {
     }
 
     /// Get historical orders for a single symbol
-    pub async fn all_orders(&self, symbol: String) -> DreamrunnerResult<Vec<HistoricalOrder>> {
+    pub async fn trades(&self, symbol: String) -> DreamrunnerResult<Vec<TradeInfo>> {
         let req = AllOrders::request(symbol, Some(5000));
-        let mut orders = self
+        let orders = self
             .client
             .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
+        let mut trades: Vec<TradeInfo> = orders.into_iter().flat_map(|o| {
+            match TradeInfo::from_historical_order(&o) {
+                Ok(trade) => {
+                    match trade.status {
+                        OrderStatus::Filled => Some(trade),
+                        _ => None,
+                    }
+                },
+                Err(_) => None
+            }
+        }).collect();
         // order by time
-        orders.sort_by(|a, b| a.update_time.partial_cmp(&b.update_time).unwrap());
-        Ok(orders)
+        trades.sort_by(|a, b| b.event_time.partial_cmp(&a.event_time).unwrap());
+        Ok(trades)
+    }
+
+    pub async fn cum_base_pnl_history(&self, symbol: String) -> DreamrunnerResult<Vec<Data>> {
+        let trades = self.trades(symbol).await?;
+
+        let mut cum = 0.0;
+        let mut data = Vec::new();
+        for trades in trades.windows(2).rev() {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Side::Long => 1.0,
+                Side::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let base_pnl = deci_pnl * entry.quantity;
+            cum += base_pnl;
+            data.push(Data {
+                x: entry.event_time,
+                y: cum
+            });
+        }
+        Ok(data)
+    }
+
+    pub async fn cum_quote_pnl_history(&self, symbol: String) -> DreamrunnerResult<Vec<Data>> {
+        let trades = self.trades(symbol).await?;
+
+        let mut cum = 0.0;
+        let mut data = Vec::new();
+        for trades in trades.windows(2).rev() {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Side::Long => 1.0,
+                Side::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            cum += quote_pnl;
+            data.push(Data {
+                x: entry.event_time,
+                y: cum
+            });
+        }
+        Ok(data)
+    }
+
+    pub async fn cum_pct_pnl_history(&self, symbol: String) -> DreamrunnerResult<Vec<Data>> {
+        let trades = self.trades(symbol).await?;
+
+        let mut cum = 0.0;
+        let mut data = Vec::new();
+        for trades in trades.windows(2).rev() {
+            // latest trade is last
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Side::Long => 1.0,
+                Side::Short => -1.0,
+            };
+            let pnl = (exit.price - entry.price) / entry.price * 100.0 * factor;
+            cum += pnl;
+            data.push(Data {
+                x: entry.event_time,
+                y: cum
+            });
+        }
+        Ok(data)
+    }
+
+    pub async fn base_pnl(&self, symbol: String) -> DreamrunnerResult<f64> {
+        let trades = self.trades(symbol).await?;
+        let mut cum_pnl = 0.0;
+        for trades in trades.windows(2).rev() {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Side::Long => 1.0,
+                Side::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let base_pnl = deci_pnl * entry.quantity;
+            cum_pnl += base_pnl;
+        }
+        Ok(trunc!(cum_pnl, 4))
+    }
+
+    pub async fn quote_pnl(&self, symbol: String) -> DreamrunnerResult<f64> {
+        let trades = self.trades(symbol).await?;
+        let mut cum_pnl = 0.0;
+        for trades in trades.windows(2).rev() {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Side::Long => 1.0,
+                Side::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            cum_pnl += quote_pnl;
+        }
+        Ok(trunc!(cum_pnl, 4))
+    }
+
+
+    pub async fn pct_pnl(&self, symbol: String) -> DreamrunnerResult<f64> {
+        let trades = self.trades(symbol).await?;
+        let mut cum_pnl = 0.0;
+        for trades in trades.windows(2).rev() {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Side::Long => 1.0,
+                Side::Short => -1.0,
+            };
+            let pnl = (exit.price - entry.price) / entry.price * 100.0 * factor;
+            cum_pnl += pnl;
+        }
+        Ok(trunc!(cum_pnl, 4))
     }
 
     /// Get last open trade for a single symbol
@@ -174,7 +306,7 @@ impl Account {
         let equal = trunc!(sum / 2_f64, 2);
         let quote_diff = trunc!(quote_balance - equal, 2);
         let base_diff = trunc!(base_balance - equal, 2);
-        let min_notional = 0.001;
+        let min_notional = 5.0;
         info!("sum: {}", sum);
         info!("equal: {}", equal);
         info!("quote_diff: {}", quote_diff);

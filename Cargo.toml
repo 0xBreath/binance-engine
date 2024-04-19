@@ -5,6 +5,7 @@ members = [
     "dreamrunner",
     "lib",
     "server",
+    "relay"
 ]
 
 [workspace.package]

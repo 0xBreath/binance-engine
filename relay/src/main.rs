@@ -1,40 +1,47 @@
-use lib::*;
-use dotenv::dotenv;
-use log::*;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
-
+mod alert;
 mod engine;
 mod utils;
-mod kagi;
-mod dreamrunner;
+
 use engine::*;
 use utils::*;
-use crate::dreamrunner::Dreamrunner;
+
+use lib::*;
+use log::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime};
+use dotenv::dotenv;
+use actix_cors::Cors;
+use actix_web::{
+  get, post,
+  web::{Data, Payload},
+  App, HttpResponse, HttpServer,
+};
 
 // Binance spot TEST network
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
 // Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
-pub const KLINE_STREAM: &str = "solusdt@kline_15m";
 pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";
 
-#[tokio::main]
+#[actix_web::main]
 async fn main() -> DreamrunnerResult<()> {
   dotenv().ok();
-  init_logger(&PathBuf::from("dreamrunner.log".to_string()))?;
-  info!("Starting Binance Dreamrunner!");
+  init_logger()?;
+
+  let port = std::env::var("PORT").unwrap_or_else(|_| "4444".to_string());
+  let bind_address = format!("0.0.0.0:{}", port);
+
+  info!("Starting Binance Relay!");
 
   let binance_test_api_key = std::env::var("BINANCE_TEST_API_KEY")?;
   let binance_test_api_secret = std::env::var("BINANCE_TEST_API_SECRET")?;
   let binance_live_api_key = std::env::var("BINANCE_LIVE_API_KEY")?;
   let binance_live_api_secret = std::env::var("BINANCE_LIVE_API_SECRET")?;
 
-  let wma_period = 5;
-  let equity_pct = 95.0;
+  let equity_pct = 98.0;
   let min_notional = 5.0; // $5 USD is the minimum SOL that can be traded
 
   let testnet = is_testnet()?;
@@ -42,15 +49,15 @@ async fn main() -> DreamrunnerResult<()> {
 
   let client = match is_testnet()? {
     true => Client::new(
-        Some(binance_test_api_key.to_string()),
-        Some(binance_test_api_secret.to_string()),
-        BINANCE_TEST_API.to_string(),
-      )?,
+      Some(binance_test_api_key.to_string()),
+      Some(binance_test_api_secret.to_string()),
+      BINANCE_TEST_API.to_string(),
+    )?,
     false => Client::new(
-        Some(binance_live_api_key.to_string()),
-        Some(binance_live_api_secret.to_string()),
-        BINANCE_LIVE_API.to_string(),
-      )?
+      Some(binance_live_api_key.to_string()),
+      Some(binance_live_api_secret.to_string()),
+      BINANCE_LIVE_API.to_string(),
+    )?
   };
 
   let user_stream = UserStream {
@@ -81,8 +88,9 @@ async fn main() -> DreamrunnerResult<()> {
     DreamrunnerResult::<_>::Ok(())
   });
 
+  
   let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
-
+  
   tokio::task::spawn(async move {
     let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
       match event {
@@ -96,8 +104,7 @@ async fn main() -> DreamrunnerResult<()> {
       }
     });
 
-    let subs = vec![KLINE_STREAM.to_string(), listen_key];
-    
+    let subs = vec![listen_key];
     let connect_ws = |ws: &mut WebSockets| {
       if let Err(e) = ws.connect_multiple_streams(&subs, testnet) {
         error!("🛑Failed to connect Binance websocket: {}", e);
@@ -123,10 +130,44 @@ async fn main() -> DreamrunnerResult<()> {
     TICKER.to_string(),
     min_notional,
     equity_pct,
-    wma_period,
-    Dreamrunner::default()
   );
   engine.ignition().await?;
 
-  Ok(())
+  let state = Data::new(Arc::new(engine));
+
+  HttpServer::new(move || {
+    let cors = Cors::default()
+      .allow_any_origin()
+      .allowed_methods(vec!["GET", "POST"])
+      .allow_any_header()
+      .max_age(3600);
+
+    App::new()
+      .app_data(Data::clone(&state))
+      .wrap(cors)
+      .service(test)
+      .service(post_alert)
+  })
+    .bind(bind_address)?
+    .run()
+    .await
+    .map_err(DreamrunnerError::from)
+}
+
+#[get("/")]
+async fn test() -> DreamrunnerResult<HttpResponse> {
+  Ok(HttpResponse::Ok().body("Relay is live!"))
+}
+
+#[post("/alert")]
+async fn post_alert(state: Data<Arc<Engine>>, payload: Payload) -> DreamrunnerResult<HttpResponse> {
+  let alert = match state.alert(payload).await {
+    Ok(res) => Ok(res),
+    Err(e) => {
+      error!("{:?}", e);
+      Err(e)
+    }
+  }?;
+  info!("{:#?}", alert);
+  Ok(HttpResponse::Ok().json(alert))
 }

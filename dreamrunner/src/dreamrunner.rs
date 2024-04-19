@@ -1,7 +1,7 @@
 use log::{info, warn};
 use time_series::{Candle, trunc};
 use crate::kagi::Kagi;
-use crate::utils::{Source, Signal, RollingCandles};
+use lib::trade::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Dreamrunner {

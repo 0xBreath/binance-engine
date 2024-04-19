@@ -25,6 +25,8 @@ See top of page "Log In with GitHub" to create an API key.
 
 ### Setup Heroku
 * Configure an app with one `worker` dyno.
+* Ensure the dynos are scaled to at least 1 worker dyno for the `Standard-2X` type 
+for enough CPU to multithread tokio tasks.
 * Install Rust buildpack: [link](https://github.com/emk/heroku-buildpack-rust)
 * Check all environment variables are set in "Config Vars" section under Settings.
 

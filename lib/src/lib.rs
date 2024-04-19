@@ -7,6 +7,7 @@ pub mod errors;
 pub mod model;
 pub mod userstream;
 pub mod websocket;
+pub mod trade;
 
 pub use account::*;
 pub use api::*;

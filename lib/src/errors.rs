@@ -60,34 +60,23 @@ pub enum DreamrunnerError {
     Anyhow(#[from] anyhow::Error),
     #[error("SendError: {0}")]
     SendError(#[from] crossbeam::channel::SendError<WebSocketEvent>),
+    #[error("TimeError: {0}")]
+    TimeError(#[from] time_series::time::TimeError),
+    #[error("Request payload size is too large")]
+    Overflow,
+    #[error("Payload error: {0}")]
+    PayloadError(#[from] actix_web::error::PayloadError),
 }
 
 impl ResponseError for DreamrunnerError {
     fn status_code(&self) -> StatusCode {
         match &self {
-            Self::Binance(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::KlineMissing => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::NoActiveOrder => StatusCode::INTERNAL_SERVER_ERROR,
             Self::SideInvalid => StatusCode::BAD_REQUEST,
             Self::OrderTypeInvalid => StatusCode::BAD_REQUEST,
-            Self::WebSocketDisconnected => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Reqwest(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::InvalidHeader(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::ParseFloat(_) => StatusCode::BAD_REQUEST,
             Self::ParseBool(_) => StatusCode::BAD_REQUEST,
-            Self::UrlParser(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Json(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Tungstenite(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::OrderStatusParseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Custom(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::SystemTime(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::EnvMissing(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ExitHandlersInitializedEarly => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ExitHandlersNotBothInitialized => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ParseInt(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Anyhow(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::PayloadError(_) => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
