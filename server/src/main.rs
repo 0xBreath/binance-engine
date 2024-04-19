@@ -15,6 +15,7 @@ pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 const BASE_ASSET: &str = "SOL";
 const QUOTE_ASSET: &str = "USDT";
 const TICKER: &str = "SOLUSDT";
+const INTERVAL: &str = "15m";
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
@@ -36,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
                 base_asset: BASE_ASSET.to_string(),
                 quote_asset: QUOTE_ASSET.to_string(),
                 ticker: TICKER.to_string(),
+                interval: INTERVAL.to_string()
             }
         }
         false => {
@@ -49,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
                 base_asset: BASE_ASSET.to_string(),
                 quote_asset: QUOTE_ASSET.to_string(),
                 ticker: TICKER.to_string(),
+                interval: INTERVAL.to_string()
             }
         }
     };
@@ -71,6 +74,8 @@ async fn main() -> anyhow::Result<()> {
             .service(pct_pnl_history)
             .service(quote_pnl_history)
             .service(base_pnl_history)
+            .service(avg_trade_size)
+             .service(klines)
             .route("/", web::get().to(test))
     })
     .bind(bind_address)?
@@ -150,6 +155,12 @@ async fn exchange_info(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpRes
     let info = account
         .exchange_info(account.ticker.clone()).await?;
     Ok(HttpResponse::Ok().json(info))
+}
+
+#[get("/avgTradeSize")]
+async fn avg_trade_size(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
+    let avg = account.avg_quote_trade_size(account.ticker.clone()).await?;
+    Ok(HttpResponse::Ok().json(avg))
 }
 
 #[get("/quotePnl")]
@@ -399,4 +410,10 @@ async fn quote_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<Htt
     )?;
     
     Ok(HttpResponse::Ok().body("Ok"))
+}
+
+#[get("/klines")]
+async fn klines(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
+    let res = account.klines().await?;
+    Ok(HttpResponse::Ok().json(res))
 }

@@ -18,6 +18,7 @@ pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
 // Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 pub const KLINE_STREAM: &str = "solusdt@kline_15m";
+pub const INTERVAL: &str = "15m";
 pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";
@@ -86,6 +87,9 @@ async fn main() -> DreamrunnerResult<()> {
   tokio::task::spawn(async move {
     let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
       match event {
+        WebSocketEvent::Kline(_) => {
+          Ok(tx.send(event)?)
+        }
         WebSocketEvent::AccountUpdate(_) => {
           Ok(tx.send(event)?)
         }
@@ -121,6 +125,7 @@ async fn main() -> DreamrunnerResult<()> {
     BASE_ASSET.to_string(),
     QUOTE_ASSET.to_string(),
     TICKER.to_string(),
+    INTERVAL.to_string(),
     min_notional,
     equity_pct,
     wma_period,

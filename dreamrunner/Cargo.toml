@@ -16,3 +16,4 @@ simplelog = { workspace = true }
 time = { workspace = true }
 time_series = { path = "../time_series" }
 tokio = { workspace = true }
+serde_json = { workspace = true }

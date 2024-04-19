@@ -3,7 +3,7 @@
 use crate::errors::{DreamrunnerError, DreamrunnerResult};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use time_series::{trunc, Time};
+use time_series::{trunc, Time, Candle};
 
 #[derive(Deserialize, Clone)]
 pub struct Empty {}
@@ -742,12 +742,12 @@ pub struct KlineEvent {
     pub symbol: String,
 
     #[serde(rename = "k")]
-    pub kline: Kline,
+    pub kline: KlineStream,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct Kline {
+pub struct KlineStream {
     #[serde(rename = "t")]
     pub open_time: i64,
 
@@ -809,7 +809,7 @@ pub struct KlineInfo {
     pub open_time: String,
 }
 
-impl Kline {
+impl KlineStream {
     pub fn info(&self) -> anyhow::Result<KlineInfo> {
         let open_time = Time::from_unix_ms(self.open_time).to_string();
         Ok(KlineInfo {
@@ -818,6 +818,17 @@ impl Kline {
             low: self.low.parse::<f64>()?,
             close: self.close.parse::<f64>()?,
             open_time,
+        })
+    }
+
+    pub fn to_candle(&self) -> DreamrunnerResult<Candle> {
+        Ok(Candle {
+            date: Time::from_unix_ms(self.open_time),
+            open: self.open.parse::<f64>()?,
+            high: self.high.parse::<f64>()?,
+            low: self.low.parse::<f64>()?,
+            close: self.close.parse::<f64>()?,
+            volume: Some(self.volume.parse::<f64>()?),
         })
     }
 }
@@ -1110,6 +1121,88 @@ impl FromStr for OrderStatus {
             "EXPIRED" => Ok(OrderStatus::Expired),
             "EXPIRED_IN_MATCH" => Ok(OrderStatus::ExpiredInMatch),
             _ => Err(DreamrunnerError::OrderStatusParseError(s.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Kline {
+    pub open_time: u64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub volume: f64,
+    pub close_time: u64,
+    pub quote_asset_volume: f64,
+    pub number_of_trades: u32,
+    pub taker_buy_base_asset_volume: f64,
+    pub taker_buy_quote_asset_volume: f64,
+    pub ignore: String,
+}
+impl TryFrom<serde_json::Value> for Kline {
+    type Error = DreamrunnerError;
+    fn try_from(value: serde_json::Value) -> DreamrunnerResult<Self> {
+        let open_time = value[0].as_u64()
+          .ok_or(DreamrunnerError::Custom("Failed to parse open time".to_string()))?;
+        let open = value[1].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse open".to_string()))?
+          .parse::<f64>()?;
+        let high = value[2].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse high".to_string()))?
+          .parse::<f64>()?;
+        let low = value[3].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse low".to_string()))?
+          .parse::<f64>()?;
+        let close = value[4].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse close".to_string()))?
+          .parse::<f64>()?;
+        let volume = value[5].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse volume".to_string()))?
+          .parse::<f64>()?;
+        let close_time = value[6].as_u64()
+          .ok_or(DreamrunnerError::Custom("Failed to parse close time".to_string()))?;
+        let quote_asset_volume = value[7].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse quote asset volume".to_string()))?
+          .parse::<f64>()?;
+        let number_of_trades = value[8].as_u64()
+          .ok_or(DreamrunnerError::Custom("Failed to parse number of trades".to_string()))?
+          as u32;
+        let taker_buy_base_asset_volume = value[9].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse take buy base asset volume".to_string()))?
+          .parse::<f64>()?;
+        let taker_buy_quote_asset_volume = value[10].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse taker buy quote asset volume".to_string()))?
+          .parse::<f64>()?;
+        let ignore = value[11].as_str()
+          .ok_or(DreamrunnerError::Custom("Failed to parse ignore".to_string()))?
+          .to_string();
+        Ok(Self {
+            open_time,
+            open,
+            high,
+            low,
+            close,
+            volume,
+            close_time,
+            quote_asset_volume,
+            number_of_trades,
+            taker_buy_base_asset_volume,
+            taker_buy_quote_asset_volume,
+            ignore,
+        })
+    }
+}
+impl Kline {
+    pub fn to_candle(&self) -> Candle {
+        Candle {
+            date: Time::from_unix_ms(self.open_time as i64),
+            open: self.open,
+            high: self.high,
+            low: self.low,
+            close: self.close,
+            volume: Some(self.volume),
         }
     }
 }

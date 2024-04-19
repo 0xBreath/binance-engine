@@ -6,6 +6,7 @@ pub mod cancel_orders;
 pub mod exchange_info;
 pub mod price;
 pub mod trade;
+pub mod klines;
 
 pub use account_info::*;
 pub use all_assets::*;
@@ -15,3 +16,4 @@ pub use cancel_orders::*;
 pub use exchange_info::*;
 pub use price::*;
 pub use trade::*;
+pub use klines::*;

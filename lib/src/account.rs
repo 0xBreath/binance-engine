@@ -3,6 +3,7 @@ use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
 use time_series::{trunc};
+use crate::builder::Klines;
 use crate::trade::{Data, TradeInfo};
 
 #[derive(Clone)]
@@ -12,6 +13,7 @@ pub struct Account {
     pub base_asset: String,
     pub quote_asset: String,
     pub ticker: String,
+    pub interval: String
 }
 
 impl Account {
@@ -22,6 +24,7 @@ impl Account {
         base_asset: String,
         quote_asset: String,
         ticker: String,
+        interval: String
     ) -> Self {
         Self {
             client,
@@ -29,6 +32,7 @@ impl Account {
             base_asset,
             quote_asset,
             ticker,
+            interval
         }
     }
 
@@ -231,6 +235,14 @@ impl Account {
         Ok(trunc!(cum_pnl, 4))
     }
 
+    pub async fn avg_quote_trade_size(&self, symbol: String) -> DreamrunnerResult<f64> {
+        let trades = self.trades(symbol).await?;
+        let avg = trades.iter().rev().map(|t| {
+            t.price * t.quantity
+        }).sum::<f64>() / trades.len() as f64;
+        Ok(trunc!(avg, 4))
+    }
+
     /// Get last open trade for a single symbol
     /// Returns Some if there is an open trade, None otherwise
     pub async fn open_orders(&self, symbol: String) -> DreamrunnerResult<Vec<HistoricalOrder>> {
@@ -369,7 +381,17 @@ impl Account {
                 return Err(e);
             }
         }
-
         Ok(())
+    }
+    
+    pub async fn klines(&self) -> DreamrunnerResult<Vec<Kline>> {
+        let req = Klines::request(self.ticker.to_string(), self.interval.to_string(), None);
+        let mut klines = self.client
+          .get::<Vec<serde_json::Value>>(API::Spot(Spot::Klines), Some(req)).await?
+          .into_iter()
+          .flat_map(Kline::try_from)
+          .collect::<Vec<Kline>>();
+        klines.sort_by(|a, b| b.open_time.cmp(&a.open_time));
+        Ok(klines)
     }
 }

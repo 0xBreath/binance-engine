@@ -17,6 +17,7 @@ pub struct Engine {
   pub base_asset: String,
   pub quote_asset: String,
   pub ticker: String,
+  pub interval: String,
   pub min_notional: f64,
   pub equity_pct: f64,
   pub active_order: ActiveOrder,
@@ -37,6 +38,7 @@ impl Engine {
     base_asset: String,
     quote_asset: String,
     ticker: String,
+    interval: String,
     min_notional: f64,
     equity_pct: f64,
     wma_period: usize,
@@ -49,6 +51,7 @@ impl Engine {
       base_asset,
       quote_asset,
       ticker,
+      interval,
       min_notional,
       equity_pct,
       active_order: ActiveOrder::new(),
@@ -70,15 +73,16 @@ impl Engine {
     // get initial asset balances
     self.update_assets().await?;
     self.log_assets();
+    // load last 
+    self.load_recent_candles(Some((self.candles.capacity - 1) as u16)).await?;
 
     while let Ok(event) = self.rx.recv() {
       match event {
         WebSocketEvent::Kline(kline) => {
           // only accept if this candle is at the end of the bar period
           if kline.kline.is_final_bar {
-            let candle = kline_to_candle(&kline)?;
             info!("{:#?}", kline.kline.info()?);
-            self.process_candle(candle).await?;
+            self.process_candle(kline.kline.to_candle()?).await?;
           }
         }
         WebSocketEvent::AccountUpdate(account_update) => {
@@ -501,5 +505,24 @@ impl Engine {
         assets.free_base,
         assets.locked_base
     );
+  }
+
+  pub async fn klines(&self, limit: Option<u16>) -> DreamrunnerResult<Vec<Kline>> {
+    let req = Klines::request(self.ticker.to_string(), self.interval.to_string(), limit);
+    let mut klines = self.client
+      .get::<Vec<serde_json::Value>>(API::Spot(Spot::Klines), Some(req)).await?
+      .into_iter()
+      .flat_map(Kline::try_from)
+      .collect::<Vec<Kline>>();
+    klines.sort_by(|a, b| b.open_time.cmp(&a.open_time));
+    Ok(klines)
+  }
+  
+  pub async fn load_recent_candles(&mut self, limit: Option<u16>) -> DreamrunnerResult<()> {
+    let klines = self.klines(limit).await?;
+    for kline in klines {
+      self.candles.push(kline.to_candle());
+    }
+    Ok(())
   }
 }

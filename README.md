@@ -30,6 +30,15 @@ for enough CPU to multithread tokio tasks.
 * Install Rust buildpack: [link](https://github.com/emk/heroku-buildpack-rust)
 * Check all environment variables are set in "Config Vars" section under Settings.
 
+To follow logs:
+```shell
+# normal heroku logs
+heroku logs -u -a lunar-engine
+
+# from Logtail UI
+heroku addons:open logtail -a lunar-engine
+```
+
 
 ### Setup Google Cloud VM
 ```bash

@@ -699,6 +699,7 @@ dependencies = [
  "lib",
  "log",
  "serde",
+ "serde_json",
  "simplelog",
  "time",
  "time_series",

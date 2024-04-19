@@ -176,8 +176,10 @@ impl<'a> WebSockets<'a> {
         while running.load(Ordering::Relaxed) {
             if let Some(ref mut socket) = self.socket {
                 let now = SystemTime::now();
+                // sending a ping to binance doesn't imply a pong will be received,
+                // but it does keep Heroku from closing the websocket connection
                 if now.duration_since(self.last_ping)?.as_secs() > 30 {
-                    info!("send ping");
+                    debug!("send ping");
                     socket.0.write_message(Message::Pong(vec![]))?;
                     self.last_ping = now;
                 }
@@ -193,7 +195,7 @@ impl<'a> WebSockets<'a> {
                         }
                     },
                     Message::Ping(msg) => {
-                        info!("recv ping");
+                        debug!("recv ping");
                         match socket.0.write_message(Message::Pong(msg)) {
                             Ok(_) => {
                                 info!("send pong");
