@@ -15,7 +15,7 @@ hex = { workspace = true }
 hmac = { workspace = true }
 lib = { path = "../lib" }
 log = { workspace = true }
-plotters = { version = "0.3.5", features = ["default"] }
+plotters = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

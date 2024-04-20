@@ -121,10 +121,10 @@ impl Signal {
   pub fn print(&self) -> String {
     match self {
       Signal::Long(data) => {
-        format!("💚Long signal {}", data.0)
+        format!("🟢 Long signal {}", data.0)
       },
       Signal::Short(data) => {
-        format!("❤️Short signal {}", data.0)
+        format!("🔴️ Short signal {}", data.0)
       },
       Signal::None => "No signal".to_string()
     }

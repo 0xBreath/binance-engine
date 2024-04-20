@@ -384,8 +384,8 @@ impl Account {
         Ok(())
     }
     
-    pub async fn klines(&self) -> DreamrunnerResult<Vec<Kline>> {
-        let req = Klines::request(self.ticker.to_string(), self.interval.to_string(), None);
+    pub async fn klines(&self, limit: Option<u16>) -> DreamrunnerResult<Vec<Kline>> {
+        let req = Klines::request(self.ticker.to_string(), self.interval.to_string(), limit);
         let mut klines = self.client
           .get::<Vec<serde_json::Value>>(API::Spot(Spot::Klines), Some(req)).await?
           .into_iter()

@@ -11,7 +11,7 @@ csv = "1.1.6"
 linreg = "0.2.0"
 log = { workspace = true }
 num-decimal = { version = "0.2.4", default-features = false, features = ["num-v04", "serde"] }
-plotters = "0.3.4"
+plotters = { workspace = true }
 rayon = "1.5.1"
 reqwest = { workspace = true }
 serde = { workspace = true }

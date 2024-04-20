@@ -65,7 +65,7 @@ pub enum DreamrunnerError {
     #[error("Request payload size is too large")]
     Overflow,
     #[error("Payload error: {0}")]
-    PayloadError(#[from] actix_web::error::PayloadError),
+    PayloadError(#[from] actix_web::error::PayloadError)
 }
 
 impl ResponseError for DreamrunnerError {

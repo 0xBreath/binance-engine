@@ -1,12 +1,13 @@
+mod plot;
+
 use std::sync::Arc;
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
 use actix_web::web::Data;
 use lib::*;
 use dotenv::dotenv;
 use log::*;
-use plotters::prelude::*;
-use plotters::prelude::full_palette::DEEPPURPLE_A100;
 use simplelog::{ColorChoice, Config as SimpleLogConfig, TermLogger, TerminalMode};
+use crate::plot::Plot;
 
 // Binance spot TEST network
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
@@ -189,72 +190,11 @@ async fn pct_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpR
     let data = account
       .cum_pct_pnl_history(account.ticker.clone()).await?;
 
-    let mut min_x = i64::MAX;
-    let mut max_x = i64::MIN;
-    let mut min_y = f64::MAX;
-    let mut max_y = f64::MIN;
-    for datum in data.iter() {
-        if datum.x < min_x {
-            min_x = datum.x;
-        }
-        if datum.x > max_x {
-            max_x = datum.x;
-        }
-        if datum.y < min_y {
-            min_y = datum.y;
-        }
-        if datum.y > max_y {
-            max_y = datum.y;
-        }
-    }
-
-    let out_file = &format!("{}/pct_pnl_history.png", env!("CARGO_MANIFEST_DIR"));
-    let root = BitMapBackend::new(out_file, (2048, 1024)).into_drawing_area();
-    root.fill(&WHITE).map_err(
-        |e| anyhow::anyhow!("Failed to fill drawing area with white: {}", e)
-    )?;
-    let mut chart = ChartBuilder::on(&root)
-      .margin_top(20)
-      .margin_bottom(20)
-      .margin_left(30)
-      .margin_right(30)
-      .set_all_label_area_size(130)
-      .caption(
-          "Percent PnL History",
-          ("sans-serif", 40.0).into_font(),
-      )
-      .build_cartesian_2d(min_x..max_x, min_y..max_y).map_err(
-        |e| anyhow::anyhow!("Failed to build cartesian 2d: {}", e)
-    )?;
-    chart
-      .configure_mesh()
-      .light_line_style(WHITE)
-      .label_style(("sans-serif", 30, &BLACK).into_text_style(&root))
-      .x_desc("UNIX milliseconds")
-      .y_desc("Percent PnL")
-      .draw().map_err(
-        |e| anyhow::anyhow!("Failed to draw mesh: {}", e)
-    )?;
-
-    // get color from colors array
-    let color = RGBAColor::from(DEEPPURPLE_A100);
-
-    chart.draw_series(
-        LineSeries::new(
-            data.iter().map(|data| (data.x, data.y)),
-            ShapeStyle {
-                color,
-                filled: true,
-                stroke_width: 2,
-            },
-        )
-          .point_size(3),
-    ).map_err(
-        |e| anyhow::anyhow!("Failed to draw series: {}", e)
-    )?;
-
-    root.present().map_err(
-        |e| anyhow::anyhow!("Failed to present root: {}", e)
+    Plot::plot(
+        data,
+        "percent_pnl",
+        "Percent Pnl",
+        "% ROI"
     )?;
 
     Ok(HttpResponse::Ok().body("Ok"))
@@ -264,75 +204,12 @@ async fn pct_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpR
 async fn base_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let data = account
       .cum_base_pnl_history(account.ticker.clone()).await?;
-
-    let mut min_x = i64::MAX;
-    let mut max_x = i64::MIN;
-    let mut min_y = f64::MAX;
-    let mut max_y = f64::MIN;
-    for datum in data.iter() {
-        if datum.x < min_x {
-            min_x = datum.x;
-        }
-        if datum.x > max_x {
-            max_x = datum.x;
-        }
-        if datum.y < min_y {
-            min_y = datum.y;
-        }
-        if datum.y > max_y {
-            max_y = datum.y;
-        }
-    }
-
-    let out_file = &format!("{}/base_pnl_history.png", env!("CARGO_MANIFEST_DIR"));
-    let root = BitMapBackend::new(out_file, (2048, 1024)).into_drawing_area();
-    root.fill(&WHITE).map_err(
-        |e| anyhow::anyhow!("Failed to fill drawing area with white: {}", e)
+    Plot::plot(
+        data,
+        "base_pnl",
+        "Base Pnl",
+        BASE_ASSET
     )?;
-    let mut chart = ChartBuilder::on(&root)
-      .margin_top(20)
-      .margin_bottom(20)
-      .margin_left(30)
-      .margin_right(30)
-      .set_all_label_area_size(130)
-      .caption(
-          "Base PnL History",
-          ("sans-serif", 40.0).into_font(),
-      )
-      .build_cartesian_2d(min_x..max_x, min_y..max_y).map_err(
-        |e| anyhow::anyhow!("Failed to build cartesian 2d: {}", e)
-    )?;
-    chart
-      .configure_mesh()
-      .light_line_style(WHITE)
-      .label_style(("sans-serif", 30, &BLACK).into_text_style(&root))
-      .x_desc("UNIX milliseconds")
-      .y_desc("Base PnL")
-      .draw().map_err(
-        |e| anyhow::anyhow!("Failed to draw mesh: {}", e)
-    )?;
-
-    // get color from colors array
-    let color = RGBAColor::from(DEEPPURPLE_A100);
-
-    chart.draw_series(
-        LineSeries::new(
-            data.iter().map(|data| (data.x, data.y)),
-            ShapeStyle {
-                color,
-                filled: true,
-                stroke_width: 2,
-            },
-        )
-          .point_size(3),
-    ).map_err(
-        |e| anyhow::anyhow!("Failed to draw series: {}", e)
-    )?;
-
-    root.present().map_err(
-        |e| anyhow::anyhow!("Failed to present root: {}", e)
-    )?;
-
     Ok(HttpResponse::Ok().body("Ok"))
 }
 
@@ -340,80 +217,17 @@ async fn base_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<Http
 async fn quote_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let data = account
       .cum_quote_pnl_history(account.ticker.clone()).await?;
-    
-    let mut min_x = i64::MAX;
-    let mut max_x = i64::MIN;
-    let mut min_y = f64::MAX;
-    let mut max_y = f64::MIN;
-    for datum in data.iter() {
-        if datum.x < min_x {
-            min_x = datum.x;
-        }
-        if datum.x > max_x {
-            max_x = datum.x;
-        }
-        if datum.y < min_y {
-            min_y = datum.y;
-        }
-        if datum.y > max_y {
-            max_y = datum.y;
-        }
-    }
-
-    let out_file = &format!("{}/quote_pnl_history.png", env!("CARGO_MANIFEST_DIR"));
-    let root = BitMapBackend::new(out_file, (2048, 1024)).into_drawing_area();
-    root.fill(&WHITE).map_err(
-        |e| anyhow::anyhow!("Failed to fill drawing area with white: {}", e)
+    Plot::plot(
+        data,
+        "quote_pnl",
+        "Quote Pnl",
+        QUOTE_ASSET
     )?;
-    let mut chart = ChartBuilder::on(&root)
-      .margin_top(20)
-      .margin_bottom(20)
-      .margin_left(30)
-      .margin_right(30)
-      .set_all_label_area_size(130)
-      .caption(
-          "Quote PnL History",
-          ("sans-serif", 40.0).into_font(),
-      )
-      .build_cartesian_2d(min_x..max_x, min_y..max_y).map_err(
-          |e| anyhow::anyhow!("Failed to build cartesian 2d: {}", e)
-      )?;
-    chart
-      .configure_mesh()
-      .light_line_style(WHITE)
-      .label_style(("sans-serif", 30, &BLACK).into_text_style(&root))
-      .x_desc("UNIX milliseconds")
-      .y_desc("Quote PnL")
-      .draw().map_err(
-          |e| anyhow::anyhow!("Failed to draw mesh: {}", e)
-      )?;
-
-    // get color from colors array
-    let color = RGBAColor::from(DEEPPURPLE_A100);
-    
-    chart.draw_series(
-        LineSeries::new(
-            data.iter().map(|data| (data.x, data.y)),
-            ShapeStyle {
-                color,
-                filled: true,
-                stroke_width: 2,
-            },
-        )
-          .point_size(3),
-    ).map_err(
-        |e| anyhow::anyhow!("Failed to draw series: {}", e)
-    )?;
-
-    root.present().map_err(
-        |e| anyhow::anyhow!("Failed to present root: {}", e)
-    )?;
-    
     Ok(HttpResponse::Ok().body("Ok"))
 }
 
 #[get("/klines")]
 async fn klines(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
-    let res = account.klines().await?;
+    let res = account.klines(None).await?;
     Ok(HttpResponse::Ok().json(res))
 }
