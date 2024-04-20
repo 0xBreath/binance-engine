@@ -6,9 +6,8 @@ use serde::de::DeserializeOwned;
 use std::time::SystemTime;
 use crossbeam::channel::Receiver;
 use lib::trade::*;
-use time_series::{trunc, Candle, Time};
+use time_series::{trunc, Candle, Time, Signal, RollingCandles, Kagi, KagiDirection};
 use crate::dreamrunner::Dreamrunner;
-use crate::kagi::{Kagi, KagiDirection};
 
 pub struct Engine {
   pub client: Client,
@@ -17,7 +16,7 @@ pub struct Engine {
   pub base_asset: String,
   pub quote_asset: String,
   pub ticker: String,
-  pub interval: String,
+  pub interval: Interval,
   pub min_notional: f64,
   pub equity_pct: f64,
   pub active_order: ActiveOrder,
@@ -38,7 +37,7 @@ impl Engine {
     base_asset: String,
     quote_asset: String,
     ticker: String,
-    interval: String,
+    interval: Interval,
     min_notional: f64,
     equity_pct: f64,
     wma_period: usize,
@@ -73,7 +72,10 @@ impl Engine {
     // get initial asset balances
     self.update_assets().await?;
     self.log_assets();
-    // load last 
+    // load one less than required rolling period.
+    // if we fetch the entire period, the most recent candle could be old.
+    // for example: 15m candles, closed at 1:00pm, we fetch at 1:14pm, we trade using old data.
+    // so we fetch one less than the rolling period and wait for the next candle to close to ensure we trade immediately.
     self.load_recent_candles(Some((self.candles.capacity - 1) as u16)).await?;
 
     while let Ok(event) = self.rx.recv() {
@@ -179,8 +181,7 @@ impl Engine {
       long_qty,
       Some(limit),
       None,
-      None,
-      Some(10000),
+      Time::now().to_unix_ms()
     );
     Ok(OrderBuilder {
       entry,
@@ -199,8 +200,7 @@ impl Engine {
       short_qty,
       Some(limit),
       None,
-      None,
-      Some(10000),
+      Time::now().to_unix_ms()
     );
     Ok(OrderBuilder {
       entry,
@@ -213,14 +213,12 @@ impl Engine {
         let order = self.long_order(price, time)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
-        info!("✅ Long");
         Ok(())
       },
       Signal::Short((price, time)) => {
         let order = self.short_order(price, time)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
-        info!("❌ Short");
         Ok(())
       },
       Signal::None => Ok(())
@@ -230,16 +228,38 @@ impl Engine {
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
     // pushes to front of VecDeque and pops the back if at capacity
     self.candles.push(candle);
-
-    if self.active_order.entry.is_none() {
-      let signal = self.dreamrunner.signal(&mut self.kagi, &self.candles)?;
-      if Signal::None != signal {
-        info!("{}", signal.print());
-        if !self.disable_trading {
-          self.handle_signal(signal).await?;
+    
+    match &self.active_order.entry {
+      None => {
+        let signal = self.dreamrunner.signal(&mut self.kagi, &self.candles)?;
+        if Signal::None != signal {
+          info!("{}", signal.print());
+          if !self.disable_trading {
+            self.handle_signal(signal).await?;
+          }
+        }
+      }
+      Some(entry) => {
+        // cancel order if not completely filled within 10 minutes
+        match entry {
+          PendingOrActiveOrder::Pending(order) => {
+            let placed_at = Time::from_unix_ms(order.timestamp);
+            if Time::now().diff_minutes(&placed_at)? > 10 {
+              self.reset_active_order().await?;
+            }
+          }
+          PendingOrActiveOrder::Active(order) => {
+            if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
+              let placed_at = Time::from_unix_ms(order.event_time);
+              if Time::now().diff_minutes(&placed_at)? > 10 {
+                self.reset_active_order().await?;
+              }
+            }
+          }
         }
       }
     }
+
     Ok(())
   }
 
@@ -430,7 +450,7 @@ impl Engine {
     let quote_diff = trunc!(quote_balance - equal, 2);
     let base_diff = trunc!(base_balance - equal, 2);
 
-    // buy BTC
+    // buy base asset
     if quote_diff > 0_f64 && quote_diff > self.min_notional {
       let timestamp = BinanceTrade::get_timestamp()?;
       let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_QUOTE");
@@ -452,8 +472,7 @@ impl Engine {
         long_qty,
         Some(price),
         None,
-        None,
-        None,
+        Time::now().to_unix_ms()
       );
       if let Err(e) = self.trade::<LimitOrderResponse>(buy_base).await {
         error!("🛑 Error equalizing quote asset with error: {:?}", e);
@@ -461,7 +480,7 @@ impl Engine {
       }
     }
 
-    // sell BTC
+    // sell base asset
     if base_diff > 0_f64 && base_diff > self.min_notional {
       let timestamp = BinanceTrade::get_timestamp()?;
       let client_order_id = format!("{}-{}", timestamp, "EQUALIZE_BASE");
@@ -478,8 +497,7 @@ impl Engine {
         short_qty,
         Some(price),
         None,
-        None,
-        None,
+        Time::now().to_unix_ms()
       );
       if let Err(e) = self.trade::<LimitOrderResponse>(sell_base).await {
         error!("🛑 Error equalizing base asset with error: {:?}", e);
@@ -507,8 +525,8 @@ impl Engine {
     );
   }
 
-  pub async fn klines(&self, limit: Option<u16>) -> DreamrunnerResult<Vec<Kline>> {
-    let req = Klines::request(self.ticker.to_string(), self.interval.to_string(), limit);
+  pub async fn klines(&self, limit: Option<u16>, start_time: Option<i64>, end_time: Option<i64>) -> DreamrunnerResult<Vec<Kline>> {
+    let req = Klines::request(self.ticker.to_string(), self.interval.as_str(), limit, start_time, end_time);
     let mut klines = self.client
       .get::<Vec<serde_json::Value>>(API::Spot(Spot::Klines), Some(req)).await?
       .into_iter()
@@ -517,9 +535,9 @@ impl Engine {
     klines.sort_by(|a, b| b.open_time.cmp(&a.open_time));
     Ok(klines)
   }
-  
+
   pub async fn load_recent_candles(&mut self, limit: Option<u16>) -> DreamrunnerResult<()> {
-    let klines = self.klines(limit).await?;
+    let klines = self.klines(limit, None, None).await?;
     for kline in klines {
       self.candles.push(kline.to_candle());
     }

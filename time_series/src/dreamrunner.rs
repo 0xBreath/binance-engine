@@ -1,5 +1,5 @@
 use log::{info, warn};
-use time_series::{Candle, Signal, Source, trunc, RollingCandles, Kagi};
+use crate::{Candle, Signal, Source, trunc, RollingCandles, Kagi};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Dreamrunner {
@@ -36,7 +36,7 @@ impl Dreamrunner {
     // update kagi
     kagi.line = k_0.line;
     kagi.direction = k_0.direction;
-    
+
     info!("{:#?}", k_0);
     let period_from_curr: Vec<&Candle> = candles.vec.range(0..candles.vec.len() - 1).collect();
     let period_from_prev: Vec<&Candle> = candles.vec.range(1..candles.vec.len()).collect();
@@ -48,7 +48,7 @@ impl Dreamrunner {
     let y = wma_0 < k_0.line;
     let x_1 = wma_1 > k_1.line;
     let y_1 = wma_1 < k_1.line;
-    
+
     let long = x && !x_1;
     let short = y && !y_1;
     match (long, short) {
@@ -60,19 +60,7 @@ impl Dreamrunner {
       (false, false) => Ok(Signal::None)
     }
   }
-
-  /// pinescript WMA source code:
-  /// ```pinescript
-  /// x = close // Source
-  /// y = 5 // MA Period
-  /// norm = 0.0
-  /// sum = 0.0
-  /// for i = 0 to y - 1
-  ///    weight = (y - i) * y
-  ///    norm := norm + weight
-  ///    sum := sum + x[i] * weight
-  /// sum / norm
-  /// ```
+  
   pub fn wma(&self, candles: &[&Candle]) -> f64 {
     let mut norm = 0.0;
     let mut sum = 0.0;

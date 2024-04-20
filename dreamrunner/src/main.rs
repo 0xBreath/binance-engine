@@ -8,7 +8,6 @@ use tokio::runtime::Handle;
 
 mod engine;
 mod utils;
-mod kagi;
 mod dreamrunner;
 use engine::*;
 use utils::*;
@@ -19,7 +18,7 @@ pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
 // Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 pub const KLINE_STREAM: &str = "solusdt@kline_15m";
-pub const INTERVAL: &str = "15m";
+pub const INTERVAL: Interval = Interval::FifteenMinutes;
 pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";
@@ -136,7 +135,7 @@ async fn main() -> DreamrunnerResult<()> {
     BASE_ASSET.to_string(),
     QUOTE_ASSET.to_string(),
     TICKER.to_string(),
-    INTERVAL.to_string(),
+    INTERVAL,
     min_notional,
     equity_pct,
     wma_period,

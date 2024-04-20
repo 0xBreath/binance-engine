@@ -2,9 +2,9 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{trunc};
+use time_series::{Data, trunc};
 use crate::builder::Klines;
-use crate::trade::{Data, TradeInfo};
+use crate::trade::TradeInfo;
 
 #[derive(Clone)]
 pub struct Account {
@@ -13,7 +13,7 @@ pub struct Account {
     pub base_asset: String,
     pub quote_asset: String,
     pub ticker: String,
-    pub interval: String
+    pub interval: Interval
 }
 
 impl Account {
@@ -24,7 +24,7 @@ impl Account {
         base_asset: String,
         quote_asset: String,
         ticker: String,
-        interval: String
+        interval: Interval
     ) -> Self {
         Self {
             client,
@@ -384,8 +384,8 @@ impl Account {
         Ok(())
     }
     
-    pub async fn klines(&self, limit: Option<u16>) -> DreamrunnerResult<Vec<Kline>> {
-        let req = Klines::request(self.ticker.to_string(), self.interval.to_string(), limit);
+    pub async fn klines(&self, limit: Option<u16>, start_time: Option<i64>, end_time: Option<i64>) -> DreamrunnerResult<Vec<Kline>> {
+        let req = Klines::request(self.ticker.to_string(), self.interval.as_str(), limit, start_time, end_time);
         let mut klines = self.client
           .get::<Vec<serde_json::Value>>(API::Spot(Spot::Klines), Some(req)).await?
           .into_iter()

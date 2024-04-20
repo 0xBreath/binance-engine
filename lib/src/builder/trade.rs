@@ -19,12 +19,10 @@ pub struct BinanceTrade {
     pub client_order_id: String,
     /// Price of the order (if market then None, if limit then Some)
     pub price: Option<f64>,
-    /// Stop loss trigger price
-    pub stop_price: Option<f64>,
-    /// Trailing stop
-    pub trailing_delta: Option<u32>,
     /// The number of milliseconds the request is valid for
     pub recv_window: u32,
+    /// UNIX timestamp in milliseconds when order was created
+    pub timestamp: i64,
 }
 
 impl BinanceTrade {
@@ -36,9 +34,8 @@ impl BinanceTrade {
         order_type: OrderType,
         quantity: f64,
         price: Option<f64>,
-        stop_price: Option<f64>,
-        trailing_delta: Option<u32>,
         recv_window: Option<u32>,
+        timestamp: i64,
     ) -> Self {
         let recv_window = recv_window.unwrap_or(10000);
         Self {
@@ -48,9 +45,8 @@ impl BinanceTrade {
             quantity,
             client_order_id,
             price,
-            stop_price,
-            trailing_delta,
             recv_window,
+            timestamp
         }
     }
 

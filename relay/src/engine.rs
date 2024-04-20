@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use actix_web::web::{BytesMut, Payload};
 use crossbeam::channel::Receiver;
 use lib::trade::*;
-use time_series::{trunc, Time};
+use time_series::{trunc, Time, Signal};
 use futures::StreamExt;
 use tokio::sync::Mutex;
 use crate::alert::Alert;

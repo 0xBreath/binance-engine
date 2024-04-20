@@ -1,55 +1,11 @@
-use crate::{Candle, Time};
-use std::fmt::{Display, Formatter};
+use crate::{Candle, Data, Kagi, KagiDirection, RollingCandles, Signal, Source, Time, trunc};
+use std::fs::File;
+use std::path::PathBuf;
+use std::str::FromStr;
+use log::LevelFilter;
+use serde::{Serialize, Deserialize};
+use crate::dreamrunner::Dreamrunner;
 
-#[derive(Debug, Clone)]
-pub enum ReversalType {
-    High,
-    Low,
-}
-impl ReversalType {
-    pub fn as_string(&self) -> String {
-        match self {
-            ReversalType::High => "High".to_string(),
-            ReversalType::Low => "Low".to_string(),
-        }
-    }
-}
-impl PartialEq for ReversalType {
-    fn eq(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (ReversalType::High, ReversalType::High) | (ReversalType::Low, ReversalType::Low)
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Reversal {
-    pub candle: Candle,
-    pub reversal_type: ReversalType,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Direction {
-    Up,
-    Down,
-}
-impl Direction {
-    pub fn as_string(&self) -> &str {
-        match self {
-            Direction::Up => "Up",
-            Direction::Down => "Down",
-        }
-    }
-}
-impl Display for Direction {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Direction::Up => write!(f, "Up"),
-            Direction::Down => write!(f, "Down"),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Order {
@@ -57,277 +13,421 @@ pub enum Order {
     Short,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
-pub enum TrailingStopType {
-    Percent,
-    Pips,
-}
-
 #[derive(Debug, Clone)]
 pub struct Trade {
-    /// Time of trade entry
-    pub entry_date: Time,
-    /// Time of trade exit
-    pub exit_date: Option<Time>,
-    /// Long or Short
-    pub order: Order,
-    /// Amount of base asset
-    pub contracts: f64,
-    /// Entry price
-    pub entry_price: f64,
-    /// Quote asset amount to risk
+    pub date: Time,
+    pub side: Order,
+    /// base asset quantity
+    pub quantity: f64,
+    pub price: f64,
     pub capital: f64,
-    /// Exit price
-    pub exit_price: Option<f64>,
-    /// Percent profit or loss relative to capital
-    pub pnl: Option<f64>,
-    /// Trailing stop
-    pub trailing_stop: Option<f64>,
-    /// Stop loss
-    pub stop_loss: Option<f64>,
-}
-impl Trade {
-    pub fn new(
-        entry_date: Time,
-        order: Order,
-        contracts: f64,
-        entry_price: f64,
-        capital: f64,
-        trailing_stop: Option<f64>,
-        stop_loss: Option<f64>,
-    ) -> Self {
-        Self {
-            entry_date,
-            exit_date: None,
-            order,
-            contracts,
-            entry_price,
-            capital,
-            exit_price: None,
-            pnl: None,
-            trailing_stop,
-            stop_loss,
-        }
-    }
-
-    pub fn trade_quantity(capital: f64, price: f64) -> f64 {
-        let quantity = capital / price;
-        (quantity * 1000000.0).round() / 1000000.0
-    }
-
-    pub fn exit(&mut self, exit_date: Time, exit_price: f64) {
-        self.exit_date = Some(exit_date);
-        self.exit_price = Some(exit_price);
-        let pnl = self.pnl();
-        self.pnl = Some(pnl);
-    }
-
-    pub fn quote_asset_pnl(&self) -> f64 {
-        let exit_price = self.exit_price.unwrap();
-        let entry_price = self.entry_price;
-        let contracts = self.contracts;
-        match self.order {
-            Order::Long => (exit_price - entry_price) * contracts,
-            Order::Short => (entry_price - exit_price) * contracts,
-        }
-    }
-
-    pub fn pnl(&self) -> f64 {
-        let exit_price = self.exit_price.unwrap();
-        let entry_price = self.entry_price;
-        let contracts = self.contracts;
-        let pnl = match self.order {
-            Order::Long => (exit_price - entry_price) * contracts,
-            Order::Short => (entry_price - exit_price) * contracts,
-        };
-        pnl / self.capital * 100.0
-    }
-
-    pub fn calc_stop_loss(order: Order, price: f64, stop_loss_pct: f64) -> f64 {
-        match order {
-            Order::Long => price * (1.0 - stop_loss_pct),
-            Order::Short => price * (1.0 + stop_loss_pct),
-        }
-    }
-
-    /// Find value of one pip for a given candle price.
-    /// One pip equals the smallest decimal place of ticker.
-    fn find_pip_value(price: f64) -> f64 {
-        let mut decimals = 0;
-        let mut price = price;
-        while price.fract() != 0.0 {
-            price *= 10.0;
-            decimals += 1;
-        }
-        let power = 10.0_f64.powi(decimals);
-        1.0 / power
-    }
-
-    pub fn calc_trailing_stop(
-        order: Order,
-        price: f64,
-        trailing_stop_type: TrailingStopType,
-        trailing_stop: f64,
-    ) -> f64 {
-        match trailing_stop_type {
-            TrailingStopType::Percent => match order {
-                Order::Long => price * (1.0 - trailing_stop),
-                Order::Short => price * (1.0 + trailing_stop),
-            },
-            TrailingStopType::Pips => {
-                let pip_value = Self::find_pip_value(price);
-                match order {
-                    Order::Long => price - trailing_stop * pip_value,
-                    Order::Short => price + trailing_stop * pip_value,
-                }
-            }
-        }
-    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Summary {
+    start_date: String,
+    end_date: String,
+    avg_trade_quote_pnl: f64,
+    num_winners: usize,
+    num_losers: usize,
+    win_pct: f64
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Backtest {
-    pub trades: Vec<Trade>,
-    pub pnl: Option<f64>,
-    pub capital: f64,
-    pub start_date: Option<Time>,
-    pub end_date: Option<Time>,
-    pub avg_trade_pnl: Option<f64>,
-    pub avg_win_trade_pnl: Option<f64>,
-    pub avg_loss_trade_pnl: Option<f64>,
+    pub candles: Vec<Candle>,
+    pub trades: Vec<Trade>
 }
 impl Backtest {
-    pub fn new(capital: f64) -> Self {
-        Self {
-            trades: vec![],
-            pnl: None,
-            capital,
-            start_date: None,
-            end_date: None,
-            avg_trade_pnl: None,
-            avg_win_trade_pnl: None,
-            avg_loss_trade_pnl: None,
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Read candles from CSV file.
+    /// Handles duplicate candles and sorts candles by date.
+    /// Expects date of candle to be in UNIX timestamp format.
+    /// CSV format: date,open,high,low,close,volume
+    pub fn add_csv_series(&mut self, csv_path: &PathBuf, start_time: Option<Time>, end_time: Option<Time>) -> anyhow::Result<()> {
+        let file_buffer = File::open(csv_path)?;
+        let mut csv = csv::Reader::from_reader(file_buffer);
+
+        let mut headers = Vec::new();
+        if let Ok(result) = csv.headers() {
+            for header in result {
+                headers.push(String::from(header));
+            }
         }
+        
+        for record in csv.records().flatten() {
+            let date = Time::from_unix(
+                record[0]
+                  .parse::<i64>()
+                  .expect("failed to parse candle UNIX timestamp into i64"),
+            );
+            let volume = None;
+            let candle = Candle {
+                date,
+                open: f64::from_str(&record[1]).expect("failed to parse open"),
+                high: f64::from_str(&record[2]).expect("failed to parse high"),
+                low: f64::from_str(&record[3]).expect("failed to parse low"),
+                close: f64::from_str(&record[4]).expect("failed to parse close"),
+                volume,
+            };
+            self.add_candle(candle);
+        }
+        // only take candles greater than a timestamp
+        self.candles.retain(|candle| {
+            match (start_time, end_time) {
+                (Some(start), Some(end)) => {
+                    candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
+                },
+                (Some(start), None) => {
+                    candle.date.to_unix_ms() > start.to_unix_ms()
+                },
+                (None, Some(end)) => {
+                    candle.date.to_unix_ms() < end.to_unix_ms()
+                },
+                (None, None) => true
+            }
+        });
+        
+        Ok(())
+    }
+
+    pub fn add_candle(&mut self, candle: Candle) {
+        self.candles.push(candle);
     }
 
     pub fn add_trade(&mut self, trade: Trade) {
         self.trades.push(trade);
-        self.pnl = self.pnl();
     }
 
-    pub fn pnl(&self) -> Option<f64> {
-        let mut pnl = 0.0;
-        for trade in &self.trades {
-            if let Some(trade_pnl) = trade.pnl {
-                pnl += trade_pnl;
-            } else {
-                println!(
-                    "No trade PNL, entry {}, exit {}",
-                    trade.entry_price,
-                    trade.exit_price.unwrap()
-                );
-            }
+    pub fn cum_quote_pnl_history(&self) -> anyhow::Result<Vec<Data>> {
+        let trades = &self.trades;
+        let mut cum = 0.0;
+        let mut data = Vec::new();
+        for trades in trades.windows(2) {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Order::Long => 1.0,
+                Order::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            cum += quote_pnl;
+            data.push(Data {
+                x: entry.date.to_unix_ms(),
+                y: cum
+            });
         }
-        if pnl == 0.0 {
-            None
-        } else {
-            Some(pnl)
-        }
+        Ok(data)
     }
 
-    pub fn quote_asset_pnl(&self) -> f64 {
-        let mut pnl = 0.0;
-        for trade in &self.trades {
-            pnl += trade.quote_asset_pnl();
+    pub fn avg_trade_quote_pnl(&self) -> anyhow::Result<f64> {
+        let trades = &self.trades;
+        let mut pnls = Vec::new();
+        for trades in trades.windows(2) {
+            // latest trade is last
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Order::Long => 1.0,
+                Order::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            pnls.push(quote_pnl);
         }
-        pnl
+        let avg = pnls.iter().sum::<f64>() / pnls.len() as f64;
+        Ok(avg)
     }
 
-    pub fn avg_trade_pnl(&self) -> Option<f64> {
-        if let Some(pnl) = self.pnl {
-            let trades = self.trades.len();
-            if trades == 0 {
-                None
-            } else {
-                Some(pnl / trades as f64)
-            }
-        } else {
-            None
+    pub fn quote_pnl(&self) -> anyhow::Result<f64> {
+        let trades = &self.trades;
+        let mut cum_pnl = 0.0;
+        for trades in trades.windows(2) {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Order::Long => 1.0,
+                Order::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            cum_pnl += quote_pnl;
         }
-    }
-
-    pub fn avg_win_trade_pnl(&self) -> Option<f64> {
-        let mut pnl = 0.0;
-        let mut trades = 0;
-        for trade in &self.trades {
-            if let Some(trade_pnl) = trade.pnl {
-                if trade_pnl > 0.0 {
-                    pnl += trade_pnl;
-                    trades += 1;
-                }
-            }
-        }
-        if trades == 0 {
-            None
-        } else {
-            Some(pnl / trades as f64)
-        }
-    }
-
-    pub fn avg_loss_trade_pnl(&self) -> Option<f64> {
-        let mut pnl = 0.0;
-        let mut trades = 0;
-        for trade in &self.trades {
-            if let Some(trade_pnl) = trade.pnl {
-                if trade_pnl < 0.0 {
-                    pnl += trade_pnl;
-                    trades += 1;
-                }
-            }
-        }
-        if trades == 0 {
-            None
-        } else {
-            Some(pnl / trades as f64)
-        }
+        Ok(trunc!(cum_pnl, 4))
     }
 
     pub fn num_trades(&self) -> usize {
         self.trades.len()
     }
 
-    pub fn num_win_trades(&self) -> usize {
-        let mut trades = 0;
-        for trade in &self.trades {
-            if let Some(trade_pnl) = trade.pnl {
-                if trade_pnl > 0.0 {
-                    trades += 1;
-                }
+    pub fn num_winners(&self) -> usize {
+        let mut wins = 0;
+        let trades = &self.trades;
+        for trades in trades.windows(2) {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Order::Long => 1.0,
+                Order::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            if quote_pnl > 0.0 {
+                wins += 1;
             }
         }
-        trades
+        wins
     }
 
-    pub fn num_loss_trades(&self) -> usize {
-        let mut trades = 0;
-        for trade in &self.trades {
-            if let Some(trade_pnl) = trade.pnl {
-                if trade_pnl < 0.0 {
-                    trades += 1;
-                }
+    pub fn num_losers(&self) -> usize {
+        let mut loses = 0;
+        let trades = &self.trades;
+        for trades in trades.windows(2) {
+            let exit = &trades[1];
+            let entry = &trades[0];
+            let factor = match entry.side {
+                Order::Long => 1.0,
+                Order::Short => -1.0,
+            };
+            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
+            let quote_pnl = deci_pnl * entry.quantity * entry.price;
+            if quote_pnl < 0.0 {
+                loses += 1;
             }
         }
-        trades
+        loses
     }
 
-    pub fn summarize(&mut self) {
-        if self.trades.is_empty() {
-            return;
-        }
-        self.start_date = Some(self.trades.first().unwrap().entry_date);
-        self.end_date = Some(self.trades.last().unwrap().entry_date);
-        self.avg_trade_pnl = self.avg_trade_pnl();
-        self.avg_win_trade_pnl = self.avg_win_trade_pnl();
-        self.avg_loss_trade_pnl = self.avg_loss_trade_pnl();
+    pub fn summarize(&mut self) -> anyhow::Result<Summary> {
+        Ok(Summary {
+            start_date: self.candles.first().unwrap().date.to_string(),
+            end_date: self.candles.last().unwrap().date.to_string(),
+            avg_trade_quote_pnl: self.avg_trade_quote_pnl()?,
+            num_winners: self.num_winners(),
+            num_losers: self.num_losers(),
+            win_pct: self.num_winners() as f64 / self.num_trades() as f64 * 100.0,
+        })
     }
+
+    pub fn wmas(
+        &mut self,
+        wma_period: usize,
+        k_rev: f64,
+        k_src: Source,
+        ma_src: Source
+    ) -> anyhow::Result<Vec<Data>> {
+        let mut period = RollingCandles::new(wma_period + 1);
+        let dreamrunner = Dreamrunner {
+            k_rev,
+            k_src,
+            ma_src
+        };
+        let mut data = Vec::new();
+
+        let candles = self.candles.clone();
+        for candle in candles {
+            period.push(candle);
+            let period_from_curr: Vec<&Candle> = period.vec.range(0..period.vec.len() - 1).collect();
+            data.push(Data {
+                x: candle.date.to_unix_ms(),
+                y: dreamrunner.wma(&period_from_curr)
+            });
+        }
+        Ok(data)
+    }
+
+    pub fn kagis(
+        &mut self,
+        wma_period: usize,
+        k_rev: f64,
+        k_src: Source,
+        ma_src: Source
+    ) -> anyhow::Result<Vec<Data>> {
+        let mut period = RollingCandles::new(wma_period + 1);
+        let mut kagi = Kagi {
+            line: self.candles.first().unwrap().low,
+            direction: KagiDirection::Down,
+        };
+        let dreamrunner = Dreamrunner {
+            k_rev,
+            k_src,
+            ma_src
+        };
+        let mut data = Vec::new();
+
+        let candles = self.candles.clone();
+        for candle in candles {
+            period.push(candle);
+            let _ = dreamrunner.signal(&mut kagi, &period)?;
+            data.push(Data {
+                x: candle.date.to_unix_ms(),
+                y: kagi.line
+            });
+        }
+        Ok(data)
+    }
+    
+    pub fn simulate(
+        &mut self, 
+        capital: f64, 
+        wma_period: usize, 
+        k_rev: f64, 
+        k_src: Source, 
+        ma_src: Source
+    ) -> anyhow::Result<Vec<Data>> {
+        let mut active_trade: Option<Trade> = None;
+        let mut period = RollingCandles::new(wma_period + 1);
+        let mut kagi = Kagi {
+            line: self.candles.first().unwrap().low,
+            direction: KagiDirection::Down,
+        };
+        let dreamrunner = Dreamrunner {
+            k_rev,
+            k_src,
+            ma_src
+        };
+        let mut data = Vec::new();
+        let mut wmas = Vec::new();
+        let mut kagis = Vec::new();
+        
+        let mut capital = capital;
+        
+        let candles = self.candles.clone();
+        for candle in candles {
+            period.push(candle);
+     
+            let signal = dreamrunner.signal(&mut kagi, &period)?;
+
+            let period_from_curr: Vec<&Candle> = period.vec.range(0..period.vec.len() - 1).collect();
+            wmas.push(Data {
+                x: candle.date.to_unix_ms(),
+                y: dreamrunner.wma(&period_from_curr)
+            });
+            kagis.push(Data {
+                x: candle.date.to_unix_ms(),
+                y: kagi.line
+            });
+            
+            match signal {
+                Signal::Long((price, time)) => {
+                    match &active_trade {
+                        Some(trade) => {
+                            if trade.side == Order::Long {
+                                continue;
+                            }
+                        }
+                        None => ()
+                    }
+                    let quantity = capital / price;
+                    let trade = Trade {
+                        date: time,
+                        side: Order::Long,
+                        quantity,
+                        price: candle.close,
+                        capital
+                    };
+                    active_trade = Some(trade.clone());
+                    self.add_trade(trade);
+                    data.push(Data {
+                        x: time.to_unix_ms(),
+                        y: capital
+                    });
+                },
+                Signal::Short((price, time)) => {
+                    if let Some(trade) = &active_trade {
+                        if trade.side == Order::Short {
+                            continue;
+                        }
+                        let quantity = trade.quantity;
+                        capital = quantity * price;
+                        
+                        let trade = Trade {
+                            date: time,
+                            side: Order::Short,
+                            quantity,
+                            price: candle.close,
+                            capital,
+                        };
+                        active_trade = Some(trade.clone());
+                        self.add_trade(trade);
+                        data.push(Data {
+                            x: time.to_unix_ms(),
+                            y: capital
+                        });
+                    }
+                },
+                Signal::None => ()
+            }
+        }
+        
+        Ok(data)
+    }
+}
+
+
+
+
+#[test]
+fn backtest_dreamrunner() -> anyhow::Result<()> {
+    use super::*;
+    
+    let mut backtest = Backtest::new();
+    let out_file = "solusdt_15m.csv";
+    let csv = PathBuf::from(out_file);
+
+    let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(16), None, None, None);
+    let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(19), None, None, None);
+    backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+
+    let k_rev = 0.001;
+    let k_src = Source::Close;
+    let ma_src = Source::Open;
+    let wma_period = 5;
+    let capital = 1_000.0;
+    
+    let capital = backtest.simulate(
+        capital,
+        wma_period,
+        k_rev,
+        k_src,
+        ma_src
+    )?;
+    Plot::plot(
+        vec![capital],
+        "dreamrunner_backtest.png",
+        "Dreamrunner Backtest",
+        "USDT Profit"
+    )?;
+    
+    let wmas = backtest.wmas(wma_period, k_rev, k_src, ma_src)?;
+    let kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
+    Plot::plot(
+        vec![wmas, kagis],
+        "strategy.png",
+        "Strategy",
+        "USDT Price"
+    )?;
+
+    let summary = backtest.summarize()?;
+    println!("{:#?}", summary);
+    println!("candles: {}", backtest.candles.len());
+    
+    Ok(())
+}
+
+use simplelog::{
+    ColorChoice, Config as SimpleLogConfig, TermLogger,
+    TerminalMode,
+};
+pub fn init_logger() -> anyhow::Result<()> {
+    Ok(TermLogger::init(
+        LevelFilter::Info,
+        SimpleLogConfig::default(),
+        TerminalMode::Mixed,
+        ColorChoice::Always,
+    )?)
 }

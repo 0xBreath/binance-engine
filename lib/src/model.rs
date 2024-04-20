@@ -960,7 +960,7 @@ impl Assets {
     pub fn balance(&self, price: f64) -> f64 {
         let base_to_quote = (self.free_base + self.locked_base) * price;
         let quote = self.free_quote + self.locked_quote;
-        quote + base_to_quote
+        trunc!(quote + base_to_quote, 4)
     }
 }
 

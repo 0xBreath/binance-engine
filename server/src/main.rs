@@ -16,7 +16,7 @@ pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 const BASE_ASSET: &str = "SOL";
 const QUOTE_ASSET: &str = "USDT";
 const TICKER: &str = "SOLUSDT";
-const INTERVAL: &str = "15m";
+const INTERVAL: Interval = Interval::FifteenMinutes;
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
                 base_asset: BASE_ASSET.to_string(),
                 quote_asset: QUOTE_ASSET.to_string(),
                 ticker: TICKER.to_string(),
-                interval: INTERVAL.to_string()
+                interval: INTERVAL
             }
         }
         false => {
@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
                 base_asset: BASE_ASSET.to_string(),
                 quote_asset: QUOTE_ASSET.to_string(),
                 ticker: TICKER.to_string(),
-                interval: INTERVAL.to_string()
+                interval: INTERVAL
             }
         }
     };
@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
             .service(quote_pnl_history)
             .service(base_pnl_history)
             .service(avg_trade_size)
-             .service(klines)
+            .service(klines)
             .route("/", web::get().to(test))
     })
     .bind(bind_address)?
@@ -102,7 +102,6 @@ async fn test() -> impl Responder {
 #[get("/assets")]
 async fn get_assets(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account.all_assets().await?;
-    trace!("{:?}", res);
     Ok(HttpResponse::Ok().json(res))
 }
 
@@ -190,9 +189,10 @@ async fn pct_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpR
     let data = account
       .cum_pct_pnl_history(account.ticker.clone()).await?;
 
+    let out_file = &format!("{}/{}.png", env!("CARGO_MANIFEST_DIR"), "percent_pnl");
     Plot::plot(
         data,
-        "percent_pnl",
+        out_file,
         "Percent Pnl",
         "% ROI"
     )?;
@@ -204,9 +204,11 @@ async fn pct_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpR
 async fn base_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let data = account
       .cum_base_pnl_history(account.ticker.clone()).await?;
+
+    let out_file = &format!("{}/{}.png", env!("CARGO_MANIFEST_DIR"), "base_pnl");
     Plot::plot(
         data,
-        "base_pnl",
+        out_file,
         "Base Pnl",
         BASE_ASSET
     )?;
@@ -217,9 +219,11 @@ async fn base_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<Http
 async fn quote_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let data = account
       .cum_quote_pnl_history(account.ticker.clone()).await?;
+
+    let out_file = &format!("{}/{}.png", env!("CARGO_MANIFEST_DIR"), "quote_pnl");
     Plot::plot(
         data,
-        "quote_pnl",
+        out_file,
         "Quote Pnl",
         QUOTE_ASSET
     )?;
@@ -228,6 +232,6 @@ async fn quote_pnl_history(account: Data<Arc<Account>>) -> DreamrunnerResult<Htt
 
 #[get("/klines")]
 async fn klines(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
-    let res = account.klines(None).await?;
+    let res = account.klines(None, None, None).await?;
     Ok(HttpResponse::Ok().json(res))
 }

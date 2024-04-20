@@ -1,7 +1,7 @@
 use lib::DreamrunnerResult;
-use lib::trade::Data;
 use plotters::prelude::*;
 use plotters::prelude::full_palette::{PURPLE_400};
+use time_series::Data;
 
 pub struct Plot;
 

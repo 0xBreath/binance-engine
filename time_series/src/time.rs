@@ -191,7 +191,7 @@ impl Time {
         Time::new(year, &month, &Day::from_string(day), None, None, None)
     }
     /// Convert `chrono::DateTime` to `Time`
-    pub fn today() -> Self {
+    pub fn now() -> Self {
         let date = chrono::Utc::now();
         let year = date.naive_utc().year();
         let month = Month::from_num(date.naive_utc().month());

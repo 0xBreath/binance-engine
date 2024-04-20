@@ -2199,6 +2199,7 @@ dependencies = [
 name = "time_series"
 version = "0.3.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "csv",
  "futures",
@@ -2206,10 +2207,12 @@ dependencies = [
  "log",
  "num-decimal",
  "plotters",
+ "rand",
  "rayon",
  "reqwest",
  "serde",
  "serde_json",
+ "simplelog",
  "thiserror",
  "tokio",
 ]
