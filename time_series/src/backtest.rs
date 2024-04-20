@@ -379,7 +379,7 @@ fn backtest_dreamrunner() -> anyhow::Result<()> {
     let out_file = "solusdt_15m.csv";
     let csv = PathBuf::from(out_file);
 
-    let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(16), None, None, None);
+    let start_time = Time::new(2023, &Month::from_num(12), &Day::from_num(16), None, None, None);
     let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(19), None, None, None);
     backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 

@@ -9,7 +9,6 @@ use crossbeam::channel::Receiver;
 use lib::trade::*;
 use time_series::{trunc, Time, Signal};
 use futures::StreamExt;
-use tokio::sync::Mutex;
 use crate::alert::Alert;
 
 const MAX_SIZE: usize = 262_144; // max payload size is 256k
@@ -127,8 +126,7 @@ impl Engine {
       long_qty,
       Some(limit),
       None,
-      None,
-      Some(10000),
+      Time::now().to_unix_ms()
     );
     Ok(OrderBuilder {
       entry,
@@ -147,8 +145,7 @@ impl Engine {
       short_qty,
       Some(limit),
       None,
-      None,
-      Some(10000),
+      Time::now().to_unix_ms()
     );
     Ok(OrderBuilder {
       entry,
@@ -161,14 +158,12 @@ impl Engine {
         let order = self.long_order(price, time)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
-        info!("✅ Long");
         Ok(())
       },
       Signal::Short((price, time)) => {
         let order = self.short_order(price, time)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
-        info!("❌ Short");
         Ok(())
       },
       Signal::None => Ok(())
@@ -339,8 +334,7 @@ impl Engine {
         long_qty,
         Some(price),
         None,
-        None,
-        None,
+        Time::now().to_unix_ms()
       );
       if let Err(e) = self.trade::<LimitOrderResponse>(buy_base).await {
         error!("🛑 Error equalizing quote asset with error: {:?}", e);
@@ -365,8 +359,7 @@ impl Engine {
         short_qty,
         Some(price),
         None,
-        None,
-        None,
+        Time::now().to_unix_ms()
       );
       if let Err(e) = self.trade::<LimitOrderResponse>(sell_base).await {
         error!("🛑 Error equalizing base asset with error: {:?}", e);

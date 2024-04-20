@@ -2,7 +2,7 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{Data, trunc};
+use time_series::{Data, Time, trunc};
 use crate::builder::Klines;
 use crate::trade::TradeInfo;
 
@@ -347,8 +347,7 @@ impl Account {
                 long_qty,
                 Some(price),
                 None,
-                None,
-                None,
+                Time::now().to_unix_ms()
             );
             if let Err(e) = self.trade::<LimitOrderResponse>(buy_base).await {
                 error!("🛑 Error equalizing quote asset with error: {:?}", e);
@@ -373,8 +372,7 @@ impl Account {
                 short_qty,
                 Some(price),
                 None,
-                None,
-                None,
+                Time::now().to_unix_ms()
             );
             if let Err(e) = self.trade::<LimitOrderResponse>(sell_base).await {
                 error!("🛑 Error equalizing base asset with error: {:?}", e);

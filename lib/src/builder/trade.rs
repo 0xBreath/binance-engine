@@ -76,12 +76,6 @@ impl BinanceTrade {
         if let Some(price) = self.price {
             btree.push(("price".to_string(), price.to_string()));
         }
-        if let Some(trailing_delta) = self.trailing_delta {
-            btree.push(("trailingDelta".to_string(), trailing_delta.to_string()));
-        }
-        if let Some(stop_loss) = self.stop_price {
-            btree.push(("stopPrice".to_string(), stop_loss.to_string()));
-        }
         let timestamp = Self::get_timestamp().expect("Failed to get timestamp");
         btree.push(("timestamp".to_string(), timestamp.to_string()));
         btree.push(("recvWindow".to_string(), self.recv_window.to_string()));
