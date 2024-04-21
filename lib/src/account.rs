@@ -110,22 +110,19 @@ impl Account {
                 Err(_) => None
             }
         }).collect();
-        // order by time
+        // order so most recent time is first
         trades.sort_by(|a, b| b.event_time.partial_cmp(&a.event_time).unwrap());
         Ok(trades)
     }
 
     pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Pnl> {
         let trades = self.trades(symbol).await?;
-        let initial_capital = trades[0].price * trades[0].quantity;
-        let mut capital = initial_capital;
-
-        let mut base = 0.0;
+        let capital = trades[0].price * trades[0].quantity;
+        
         let mut quote = 0.0;
         let mut pct = 0.0;
         let mut pct_data = Vec::new();
         let mut quote_data = Vec::new();
-        let mut base_data = Vec::new();
         let mut winners = 0;
         let mut total_trades = 0;
         for trades in trades.windows(2).rev() {
@@ -135,15 +132,14 @@ impl Account {
                 Side::Long => 1.0,
                 Side::Short => -1.0,
             };
-            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
-            let base_pnl = deci_pnl * entry.quantity;
-            let quote_pnl = base_pnl * entry.price;
-            capital += quote_pnl;
-            base += base_pnl;
+            let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
+            let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
+            
             quote += quote_pnl;
-            pct = capital / initial_capital * 100.0 - 100.0;
+            pct = quote / capital * 100.0;
+            
             if quote_pnl > 0.0 {
-                winners +=1 ;
+                winners += 1;
             }
             total_trades += 1;
             
@@ -155,10 +151,6 @@ impl Account {
                 x: entry.event_time,
                 y: trunc!(quote, 4)
             });
-            base_data.push(Data {
-                x: entry.event_time,
-                y: trunc!(base, 4)
-            });
         }
         let avg_pct_pnl = pct_data.iter().map(|d| d.y).sum::<f64>() / pct_data.len() as f64;
         let win_rate = (winners as f64 / total_trades as f64) * 100.0;
@@ -168,16 +160,15 @@ impl Account {
             (max, drawdown)
         }).1;
         Ok(Pnl {
-            base: trunc!(base, 4),
             quote: trunc!(quote, 4),
             pct: trunc!(pct, 4),
             pct_data,
             win_rate: trunc!(win_rate, 4),
+            total_trades,
             avg_quote_trade_size: self.avg_quote_trade_size(self.ticker.clone()).await?,
             avg_pct_pnl: trunc!(avg_pct_pnl, 4),
             max_pct_drawdown: trunc!(max_pct_drawdown, 4),
             quote_data,
-            base_data
         })
     }
 

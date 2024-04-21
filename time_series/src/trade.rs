@@ -43,13 +43,12 @@ impl Signal {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pnl {
   pub quote: f64,
-  pub base: f64,
   pub pct: f64,
   pub win_rate: f64,
+  pub total_trades: usize,
   pub avg_quote_trade_size: f64,
   pub avg_pct_pnl: f64,
   pub max_pct_drawdown: f64,
   pub quote_data: Vec<Data>,
-  pub base_data: Vec<Data>,
   pub pct_data: Vec<Data>
 }

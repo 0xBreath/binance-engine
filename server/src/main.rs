@@ -170,12 +170,6 @@ async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse
         "% ROI"
     )?;
     Plot::plot(
-        vec![res.base_data],
-        "base_pnl.png",
-        "Base Pnl",
-        BASE_ASSET
-    )?;
-    Plot::plot(
         vec![res.quote_data],
         "quote_pnl.png",
         "Quote Pnl",

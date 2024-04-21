@@ -42,7 +42,7 @@ async fn main() -> DreamrunnerResult<()> {
   let binance_live_api_key = std::env::var("BINANCE_LIVE_API_KEY")?;
   let binance_live_api_secret = std::env::var("BINANCE_LIVE_API_SECRET")?;
 
-  let equity_pct = 98.0;
+  let equity_pct = 90.0;
   let min_notional = 5.0; // $5 USD is the minimum SOL that can be traded
 
   let testnet = is_testnet()?;

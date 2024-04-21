@@ -21,18 +21,22 @@ pub struct Trade {
   pub side: Order,
   /// base asset quantity
   pub quantity: f64,
-  pub price: f64,
-  pub capital: f64,
+  pub price: f64
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Backtest {
+  pub capital: f64,
   pub candles: Vec<Candle>,
   pub trades: Vec<Trade>
 }
 impl Backtest {
-  pub fn new() -> Self {
-    Self::default()
+  pub fn new(capital: f64) -> Self {
+    Self {
+      capital,
+      candles: Vec::new(),
+      trades: Vec::new()
+    }
   }
 
   /// Read candles from CSV file.
@@ -97,8 +101,10 @@ impl Backtest {
       _ => 30
     };
     println!("days back: {}", days_back);
-    let klines = account.kline_history(days_back).await?;
-    for kline in klines.into_iter().rev() {
+    let mut klines = account.kline_history(days_back).await?;
+    klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
+    
+    for kline in klines.into_iter() {
       self.add_candle(kline.to_candle());
     }
     // only take candles greater than a timestamp
@@ -135,19 +141,18 @@ impl Backtest {
     Ok(trunc!(avg, 4))
   }
 
+  /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
   pub fn pnl(&self) -> anyhow::Result<Pnl> {
     let trades = &self.trades;
-    let initial_capital = trades[0].price * trades[0].quantity;
-    let mut capital = initial_capital;
-
-    let mut base = 0.0;
+    let capital = self.capital;
+    
     let mut quote = 0.0;
     let mut pct = 0.0;
     let mut pct_data = Vec::new();
     let mut quote_data = Vec::new();
-    let mut base_data = Vec::new();
     let mut winners = 0;
     let mut total_trades = 0;
+    
     for trades in trades.windows(2) {
       let exit = &trades[1];
       let entry = &trades[0];
@@ -155,15 +160,18 @@ impl Backtest {
         Order::Long => 1.0,
         Order::Short => -1.0,
       };
-      let deci_pnl = (exit.price - entry.price) / entry.price * factor;
-      let base_pnl = deci_pnl * entry.quantity;
-      let quote_pnl = base_pnl * entry.price;
-      capital += quote_pnl;
-      base += base_pnl;
+      // win short: (80 - 100) / 100 * factor = 0.2 = 20%
+      // lose short: (100 - 80) / 80 * factor = -0.25 = -25%
+      // win long: (100 - 80) / 80 * factor = 0.25 = 25%
+      // lose long: (80 - 100) / 100 * factor = -0.2 = -20%
+      let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
+      let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
+
       quote += quote_pnl;
-      pct = capital / initial_capital * 100.0 - 100.0;
+      pct = quote / capital * 100.0;
+      
       if quote_pnl > 0.0 {
-        winners +=1 ;
+        winners += 1;
       }
       total_trades += 1;
 
@@ -175,10 +183,6 @@ impl Backtest {
         x: entry.date.to_unix_ms(),
         y: trunc!(quote, 4)
       });
-      base_data.push(Data {
-        x: entry.date.to_unix_ms(),
-        y: trunc!(base, 4)
-      });
     }
     let avg_pct_pnl = pct_data.iter().map(|d| d.y).sum::<f64>() / pct_data.len() as f64;
     let win_rate = (winners as f64 / total_trades as f64) * 100.0;
@@ -188,16 +192,15 @@ impl Backtest {
       (max, drawdown)
     }).1;
     Ok(Pnl {
-      base: trunc!(base, 4),
       quote: trunc!(quote, 4),
       pct: trunc!(pct, 4),
       pct_data,
       win_rate: trunc!(win_rate, 4),
+      total_trades,
       avg_quote_trade_size: self.avg_quote_trade_size()?,
       avg_pct_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
       quote_data,
-      base_data
     })
   }
 
@@ -261,12 +264,11 @@ impl Backtest {
 
   pub fn simulate(
     &mut self,
-    capital: f64,
     wma_period: usize,
     k_rev: f64,
     k_src: Source,
     ma_src: Source
-  ) -> anyhow::Result<Vec<Data>> {
+  ) -> anyhow::Result<()> {
     let mut active_trade: Option<Trade> = None;
     let mut period = RollingCandles::new(wma_period + 1);
     let mut kagi = Kagi {
@@ -278,27 +280,13 @@ impl Backtest {
       k_src,
       ma_src
     };
-    let mut data = Vec::new();
-    let mut wmas = Vec::new();
-    let mut kagis = Vec::new();
-
-    let mut capital = capital;
+    let capital = self.capital;
 
     let candles = self.candles.clone();
     for candle in candles {
       period.push(candle);
 
       let signal = dreamrunner.signal(&mut kagi, &period)?;
-
-      let period_from_curr: Vec<&Candle> = period.vec.range(0..period.vec.len() - 1).collect();
-      wmas.push(Data {
-        x: candle.date.to_unix_ms(),
-        y: dreamrunner.wma(&period_from_curr)
-      });
-      kagis.push(Data {
-        x: candle.date.to_unix_ms(),
-        y: kagi.line
-      });
 
       match signal {
         Signal::Long((price, time)) => {
@@ -315,44 +303,33 @@ impl Backtest {
             date: time,
             side: Order::Long,
             quantity,
-            price: candle.close,
-            capital
+            price,
           };
           active_trade = Some(trade.clone());
           self.add_trade(trade);
-          data.push(Data {
-            x: time.to_unix_ms(),
-            y: capital
-          });
         },
         Signal::Short((price, time)) => {
           if let Some(trade) = &active_trade {
             if trade.side == Order::Short {
               continue;
             }
-            let quantity = trade.quantity;
-            capital = quantity * price;
+            let quantity = capital / price;
 
             let trade = Trade {
               date: time,
               side: Order::Short,
               quantity,
-              price: candle.close,
-              capital,
+              price,
             };
             active_trade = Some(trade.clone());
             self.add_trade(trade);
-            data.push(Data {
-              x: time.to_unix_ms(),
-              y: capital
-            });
           }
         },
         Signal::None => ()
       }
     }
 
-    Ok(data)
+    Ok(())
   }
 }
 
@@ -365,49 +342,20 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
 
-  let account = match std::env::var("TESTNET")?.parse::<bool>()? {
-    true => {
-      Account {
-        client: Client::new(
-          Some(std::env::var("BINANCE_TEST_API_KEY")?),
-          Some(std::env::var("BINANCE_TEST_API_SECRET")?),
-          BINANCE_TEST_API.to_string(),
-        )?,
-        recv_window: 5000,
-        base_asset: BASE_ASSET.to_string(),
-        quote_asset: QUOTE_ASSET.to_string(),
-        ticker: TICKER.to_string(),
-        interval: INTERVAL
-      }
-    }
-    false => {
-      Account {
-        client: Client::new(
-          Some(std::env::var("BINANCE_LIVE_API_KEY")?),
-          Some(std::env::var("BINANCE_LIVE_API_SECRET")?),
-          BINANCE_LIVE_API.to_string(),
-        )?,
-        recv_window: 5000,
-        base_asset: BASE_ASSET.to_string(),
-        quote_asset: QUOTE_ASSET.to_string(),
-        ticker: TICKER.to_string(),
-        interval: INTERVAL
-      }
-    }
-  };
+  let capital = 1_000.0;
+  let mut backtest = Backtest::new(capital);
 
-  let mut backtest = Backtest::new();
+  let start_time = Time::from_unix_ms(1713300000000);
+  let end_time = Time::from_unix_ms(1713750000000);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(16), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
 
-  let start_time = Time::new(2023, &Month::from_num(9), &Day::from_num(19), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(19), None, None, None);
+  let out_file = "solusdt_15m.csv";
+  let csv = PathBuf::from(out_file);
+  backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 
-  backtest.add_klines(&account, Some(start_time), Some(end_time)).await?;
-  // let out_file = "solusdt_15m.csv";
-  // let csv = PathBuf::from(out_file);
-  // backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-
-  let earliest = backtest.candles.last().unwrap().date;
-  let latest = backtest.candles.first().unwrap().date;
+  let earliest = backtest.candles.first().unwrap().date;
+  let latest = backtest.candles.last().unwrap().date;
   println!("kline history: {} - {}", earliest.to_string(), latest.to_string());
   
 
@@ -415,23 +363,28 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
   let k_src = Source::Close;
   let ma_src = Source::Open;
   let wma_period = 5;
-  let capital = 1_000.0;
 
-  let _ = backtest.simulate(
-    capital,
+  backtest.simulate(
     wma_period,
     k_rev,
     k_src,
     ma_src
   )?;
   let summary = backtest.pnl()?;
-  println!("{:#?}", summary);
+  println!("% Return: {}", summary.pct);
+  println!("$ Return: {}", summary.quote);
+  println!("Avg Trade Return: {}", summary.avg_pct_pnl);
+  println!("Avg Trade Size: {}", summary.avg_quote_trade_size);
+  println!("Win Rate: {}%", summary.win_rate);
+  println!("Max Drawdown: {}%", summary.max_pct_drawdown);
+  println!("Total Trades: {}", summary.total_trades);
+  println!("Candles: {}", backtest.candles.len());
   
   Plot::plot(
-    vec![summary.pct_data],
+    vec![summary.quote_data],
     "dreamrunner_backtest.png",
     "Dreamrunner Backtest",
-    "USDT Profit"
+    "Equity"
   )?;
 
   let wmas = backtest.wmas(wma_period, k_rev, k_src, ma_src)?;
@@ -442,8 +395,6 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
     "Strategy",
     "USDT Price"
   )?;
-  
-  println!("candles: {}", backtest.candles.len());
 
   Ok(())
 }
