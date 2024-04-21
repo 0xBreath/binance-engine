@@ -1,4 +1,5 @@
-use crate::Time;
+use crate::{Data, Time};
+use serde::{Serialize, Deserialize};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
@@ -37,4 +38,18 @@ impl Signal {
       Signal::None => None
     }
   }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pnl {
+  pub quote: f64,
+  pub base: f64,
+  pub pct: f64,
+  pub win_rate: f64,
+  pub avg_quote_trade_size: f64,
+  pub avg_pct_pnl: f64,
+  pub max_pct_drawdown: f64,
+  pub quote_data: Vec<Data>,
+  pub base_data: Vec<Data>,
+  pub pct_data: Vec<Data>
 }

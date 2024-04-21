@@ -338,4 +338,21 @@ impl Account {
         klines.sort_by(|a, b| b.open_time.cmp(&a.open_time));
         Ok(klines)
     }
+    
+    // get historical klines for the specified days back
+    pub async fn kline_history(&self, days_back: i64) -> DreamrunnerResult<Vec<Kline>> {
+        let end = Time::now();
+        let start = Time::new(end.year, &end.month, &end.day, end.hour, end.minute, end.second);
+
+        let mut data: Vec<Kline> = Vec::new();
+        for i in 0..days_back {
+            let start = start.delta_date(-i);
+            let end = end.delta_date(-i);
+            let mut klines = self.klines(None, Some(start.to_unix_ms()), Some(end.to_unix_ms())).await?;
+            data.append(&mut klines);
+        }
+        // sort so that the latest kline is first
+        data.sort_by(|a, b| b.open_time.cmp(&a.open_time));
+        Ok(data)
+    }
 }

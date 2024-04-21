@@ -9,6 +9,7 @@ use tokio::runtime::Handle;
 mod engine;
 mod utils;
 mod dreamrunner;
+mod backtest;
 use engine::*;
 use utils::*;
 use crate::dreamrunner::Dreamrunner;

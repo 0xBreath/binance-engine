@@ -695,6 +695,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "crossbeam",
+ "csv",
  "dotenv",
  "lib",
  "log",

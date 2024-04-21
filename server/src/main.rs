@@ -70,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
             .service(pnl)
             .service(plot_pnl)
             .service(klines)
+            .service(kline_history)
             .route("/", web::get().to(test))
     })
     .bind(bind_address)?
@@ -187,5 +188,11 @@ async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse
 #[get("/klines")]
 async fn klines(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account.klines(None, None, None).await?;
+    Ok(HttpResponse::Ok().json(res))
+}
+
+#[get("/klineHistory")]
+async fn kline_history(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
+    let res = account.kline_history(60).await?;
     Ok(HttpResponse::Ok().json(res))
 }
