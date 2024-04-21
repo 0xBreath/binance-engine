@@ -2,7 +2,7 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{Data, Time, trunc};
+use time_series::{Data, Pnl, Time, trunc};
 use crate::builder::Klines;
 use crate::trade::TradeInfo;
 
@@ -115,11 +115,19 @@ impl Account {
         Ok(trades)
     }
 
-    pub async fn cum_base_pnl_history(&self, symbol: String) -> DreamrunnerResult<Vec<Data>> {
+    pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Pnl> {
         let trades = self.trades(symbol).await?;
+        let initial_capital = trades[0].price * trades[0].quantity;
+        let mut capital = initial_capital;
 
-        let mut cum = 0.0;
-        let mut data = Vec::new();
+        let mut base = 0.0;
+        let mut quote = 0.0;
+        let mut pct = 0.0;
+        let mut pct_data = Vec::new();
+        let mut quote_data = Vec::new();
+        let mut base_data = Vec::new();
+        let mut winners = 0;
+        let mut total_trades = 0;
         for trades in trades.windows(2).rev() {
             let exit = &trades[1];
             let entry = &trades[0];
@@ -129,110 +137,48 @@ impl Account {
             };
             let deci_pnl = (exit.price - entry.price) / entry.price * factor;
             let base_pnl = deci_pnl * entry.quantity;
-            cum += base_pnl;
-            data.push(Data {
+            let quote_pnl = base_pnl * entry.price;
+            capital += quote_pnl;
+            base += base_pnl;
+            quote += quote_pnl;
+            pct = capital / initial_capital * 100.0 - 100.0;
+            if quote_pnl > 0.0 {
+                winners +=1 ;
+            }
+            total_trades += 1;
+            
+            pct_data.push(Data {
                 x: entry.event_time,
-                y: cum
+                y: trunc!(pct, 4)
+            });
+            quote_data.push(Data {
+                x: entry.event_time,
+                y: trunc!(quote, 4)
+            });
+            base_data.push(Data {
+                x: entry.event_time,
+                y: trunc!(base, 4)
             });
         }
-        Ok(data)
-    }
-
-    pub async fn cum_quote_pnl_history(&self, symbol: String) -> DreamrunnerResult<Vec<Data>> {
-        let trades = self.trades(symbol).await?;
-
-        let mut cum = 0.0;
-        let mut data = Vec::new();
-        for trades in trades.windows(2).rev() {
-            let exit = &trades[1];
-            let entry = &trades[0];
-            let factor = match entry.side {
-                Side::Long => 1.0,
-                Side::Short => -1.0,
-            };
-            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
-            let quote_pnl = deci_pnl * entry.quantity * entry.price;
-            cum += quote_pnl;
-            data.push(Data {
-                x: entry.event_time,
-                y: cum
-            });
-        }
-        Ok(data)
-    }
-
-    pub async fn cum_pct_pnl_history(&self, symbol: String) -> DreamrunnerResult<Vec<Data>> {
-        let trades = self.trades(symbol).await?;
-
-        let mut cum = 0.0;
-        let mut data = Vec::new();
-        for trades in trades.windows(2).rev() {
-            // latest trade is last
-            let exit = &trades[1];
-            let entry = &trades[0];
-            let factor = match entry.side {
-                Side::Long => 1.0,
-                Side::Short => -1.0,
-            };
-            let pnl = (exit.price - entry.price) / entry.price * 100.0 * factor;
-            cum += pnl;
-            data.push(Data {
-                x: entry.event_time,
-                y: cum
-            });
-        }
-        Ok(data)
-    }
-
-    pub async fn base_pnl(&self, symbol: String) -> DreamrunnerResult<f64> {
-        let trades = self.trades(symbol).await?;
-        let mut cum_pnl = 0.0;
-        for trades in trades.windows(2).rev() {
-            let exit = &trades[1];
-            let entry = &trades[0];
-            let factor = match entry.side {
-                Side::Long => 1.0,
-                Side::Short => -1.0,
-            };
-            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
-            let base_pnl = deci_pnl * entry.quantity;
-            cum_pnl += base_pnl;
-        }
-        Ok(trunc!(cum_pnl, 4))
-    }
-
-    pub async fn quote_pnl(&self, symbol: String) -> DreamrunnerResult<f64> {
-        let trades = self.trades(symbol).await?;
-        let mut cum_pnl = 0.0;
-        for trades in trades.windows(2).rev() {
-            let exit = &trades[1];
-            let entry = &trades[0];
-            let factor = match entry.side {
-                Side::Long => 1.0,
-                Side::Short => -1.0,
-            };
-            let deci_pnl = (exit.price - entry.price) / entry.price * factor;
-            let quote_pnl = deci_pnl * entry.quantity * entry.price;
-            cum_pnl += quote_pnl;
-        }
-        Ok(trunc!(cum_pnl, 4))
-    }
-
-
-    pub async fn pct_pnl(&self, symbol: String) -> DreamrunnerResult<f64> {
-        let trades = self.trades(symbol).await?;
-        let mut cum_pnl = 0.0;
-        for trades in trades.windows(2).rev() {
-            let exit = &trades[1];
-            let entry = &trades[0];
-            let factor = match entry.side {
-                Side::Long => 1.0,
-                Side::Short => -1.0,
-            };
-            let pnl = (exit.price - entry.price) / entry.price * 100.0 * factor;
-            cum_pnl += pnl;
-        }
-        Ok(trunc!(cum_pnl, 4))
+        let avg_pct_pnl = pct_data.iter().map(|d| d.y).sum::<f64>() / pct_data.len() as f64;
+        let win_rate = (winners as f64 / total_trades as f64) * 100.0;
+        let max_pct_drawdown = pct_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
+            let max = (max as f64).max(d.y);
+            let drawdown = (drawdown as f64).min(d.y - max);
+            (max, drawdown)
+        }).1;
+        Ok(Pnl {
+            base: trunc!(base, 4),
+            quote: trunc!(quote, 4),
+            pct: trunc!(pct, 4),
+            pct_data,
+            win_rate: trunc!(win_rate, 4),
+            avg_quote_trade_size: self.avg_quote_trade_size(self.ticker.clone()).await?,
+            avg_pct_pnl: trunc!(avg_pct_pnl, 4),
+            max_pct_drawdown: trunc!(max_pct_drawdown, 4),
+            quote_data,
+            base_data
+        })
     }
 
     pub async fn avg_quote_trade_size(&self, symbol: String) -> DreamrunnerResult<f64> {

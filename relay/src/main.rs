@@ -17,6 +17,7 @@ use actix_web::{
   web::{Data, Payload},
   App, HttpResponse, HttpServer,
 };
+use tokio::runtime::Handle;
 
 // Binance spot TEST network
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
@@ -105,19 +106,28 @@ async fn main() -> DreamrunnerResult<()> {
     });
 
     let subs = vec![listen_key];
-    let connect_ws = |ws: &mut WebSockets| {
-      if let Err(e) = ws.connect_multiple_streams(&subs, testnet) {
-        error!("🛑Failed to connect Binance websocket: {}", e);
-        return Err(e);
+    while AtomicBool::new(true).load(Ordering::Relaxed) {
+      match ws.connect_multiple_streams(&subs, testnet) {
+        Err(e) => {
+          error!("🛑Failed to connect Binance websocket: {}", e);
+          tokio::task::block_in_place(move || {
+            Handle::current().block_on(async move {
+              tokio::time::sleep(Duration::from_secs(5)).await
+            })
+          });
+        }
+        Ok(_) => {
+          if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
+            error!("🛑Binance websocket error: {:#?}", e);
+            tokio::task::block_in_place(move || {
+              Handle::current().block_on(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await
+              })
+            });
+          }
+        }
       }
-      Ok(())
-    };
-    connect_ws(&mut ws)?;
-
-    if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
-      error!("🛑Binance websocket error: {:#?}", e);
-      connect_ws(&mut ws)?;
-    };
+    }
     DreamrunnerResult::<_>::Ok(())
   });
 
