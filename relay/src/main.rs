@@ -99,67 +99,49 @@ async fn main() -> DreamrunnerResult<()> {
   let ws_running = running.clone();
   let ws_tx = tx.clone();
   let ws_handle = tokio::task::spawn(async move {
-    let callback: Callback = Box::new(move |event: WebSocketEvent| {
-      let ws_tx = ws_tx.clone();
-      Box::pin(async move {
-        match event {
-          WebSocketEvent::AccountUpdate(_) => {
-            let msg = ChannelMsg::Websocket(event);
-            ws_tx.send(msg)?
-          }
-          WebSocketEvent::OrderTrade(_) => {
-            let msg = ChannelMsg::Websocket(event);
-            ws_tx.send(msg)?
-          }
-          _ => (),
-        };
-        DreamrunnerResult::<_>::Ok(())
-      })
+    let callback: Callback = Box::new(|event: WebSocketEvent| {
+      match event {
+        WebSocketEvent::AccountUpdate(_) => {
+          let msg = ChannelMsg::Websocket(event);
+          ws_tx.send(msg)?
+        }
+        WebSocketEvent::OrderTrade(_) => {
+          let msg = ChannelMsg::Websocket(event);
+          ws_tx.send(msg)?
+        }
+        _ => (),
+      };
+      DreamrunnerResult::<_>::Ok(())
     });
     
     let mut ws = WebSockets::new(testnet, callback);
 
     let subs = vec![listen_key];
     while ws_running.load(Ordering::Relaxed) {
-      match ws.connect_multiple_streams(&subs, testnet).await {
+      match ws.connect_multiple_streams(&subs, testnet) {
         Err(e) => {
           error!("🛑Failed to connect Binance websocket: {}", e);
-          tokio::time::sleep(Duration::from_secs(5)).await
+          tokio::task::block_in_place(move || {
+            Handle::current().block_on(async move {
+              tokio::time::sleep(Duration::from_secs(5)).await
+            })
+          });
         }
         Ok(_) => {
-          if let Err(e) = ws.event_loop(&ws_running).await {
+          if let Err(e) = ws.event_loop(&ws_running) {
             error!("🛑Binance websocket error: {:#?}", e);
-            tokio::time::sleep(Duration::from_secs(5)).await
+            tokio::task::block_in_place(move || {
+              Handle::current().block_on(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await
+              })
+            });
           }
           warn!("Finished event loop");
         }
       }
     }
-    // while ws_running.load(Ordering::Relaxed) {
-    //   match ws.connect_multiple_streams(&subs, testnet) {
-    //     Err(e) => {
-    //       error!("🛑Failed to connect Binance websocket: {}", e);
-    //       tokio::task::block_in_place(move || {
-    //         Handle::current().block_on(async move {
-    //           tokio::time::sleep(Duration::from_secs(5)).await
-    //         })
-    //       });
-    //     }
-    //     Ok(_) => {
-    //       if let Err(e) = ws.event_loop(&ws_running).await {
-    //         error!("🛑Binance websocket error: {:#?}", e);
-    //         tokio::task::block_in_place(move || {
-    //           Handle::current().block_on(async move {
-    //             tokio::time::sleep(Duration::from_secs(5)).await
-    //           })
-    //         });
-    //       }
-    //       warn!("Finished event loop");
-    //     }
-    //   }
-    // }
     info!("⚠️ Shutting down websocket listener");
-    ws.disconnect().await?;
+    ws.disconnect()?;
     DreamrunnerResult::<_>::Ok(())
   });
 
@@ -202,8 +184,7 @@ async fn main() -> DreamrunnerResult<()> {
     info!("⚠️ Shutting down server");
     DreamrunnerResult::<_>::Ok(())
   });
-
-  info!("Listening for SIGINT");
+  
   tokio::signal::ctrl_c().await?;
   warn!("SIGINT received, shutting down");
   running.store(false, Ordering::Relaxed);
