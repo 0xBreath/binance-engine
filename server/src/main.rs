@@ -14,7 +14,7 @@ pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
 const BASE_ASSET: &str = "SOL";
 const QUOTE_ASSET: &str = "USDT";
 const TICKER: &str = "SOLUSDT";
-const INTERVAL: Interval = Interval::FifteenMinutes;
+const INTERVAL: Interval = Interval::ThirtyMinutes;
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {

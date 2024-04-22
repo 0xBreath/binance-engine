@@ -18,8 +18,8 @@ use crate::dreamrunner::Dreamrunner;
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
 // Binance spot LIVE network
 pub const BINANCE_LIVE_API: &str = "https://api.binance.us";
-pub const KLINE_STREAM: &str = "solusdt@kline_15m";
-pub const INTERVAL: Interval = Interval::FifteenMinutes;
+pub const KLINE_STREAM: &str = "solusdt@kline_30m";
+pub const INTERVAL: Interval = Interval::ThirtyMinutes;
 pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";

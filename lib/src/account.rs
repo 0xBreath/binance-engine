@@ -132,8 +132,11 @@ impl Account {
                 Side::Long => 1.0,
                 Side::Short => -1.0,
             };
+            // (100 - 80) / 80 = 0.25  =>  0.25 * 100 = 25%
+            // (80 - 100) / 100 = -0.20  =>  -0.20 * 100 = -20%
             let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
-            let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
+            // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
+            let quote_pnl = pct_pnl / 100.0 * capital;
             
             quote += quote_pnl;
             pct = quote / capital * 100.0;

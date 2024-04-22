@@ -160,12 +160,9 @@ impl Backtest {
         Order::Long => 1.0,
         Order::Short => -1.0,
       };
-      // win short: (80 - 100) / 100 * factor = 0.2 = 20%
-      // lose short: (100 - 80) / 80 * factor = -0.25 = -25%
-      // win long: (100 - 80) / 80 * factor = 0.25 = 25%
-      // lose long: (80 - 100) / 100 * factor = -0.2 = -20%
       let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
-      let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
+      // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
+      let quote_pnl = pct_pnl / 100.0 * capital;
 
       quote += quote_pnl;
       pct = quote / capital * 100.0;
@@ -347,9 +344,9 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
 
   // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(14), Some(13), Some(59), Some(52));
   let start_time = Time::new(2023, &Month::from_num(9), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(21), Some(18), Some(46), Some(28));
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
 
-  let out_file = "solusdt_15m.csv";
+  let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 
@@ -381,7 +378,7 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
   
   Plot::plot(
     vec![summary.quote_data],
-    "dreamrunner_backtest.png",
+    "backtest.png",
     "Dreamrunner Backtest",
     "Equity"
   )?;
