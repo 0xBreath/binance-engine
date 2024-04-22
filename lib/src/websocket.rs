@@ -19,6 +19,7 @@ use std::time::SystemTime;
 use url::Url;
 use tokio_tungstenite::tungstenite::Message;
 use std::net::TcpStream;
+use crossbeam::channel::Receiver;
 use tokio_tungstenite::tungstenite::handshake::client::Response;
 use tokio_tungstenite::tungstenite::protocol::WebSocket;
 use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
@@ -184,7 +185,6 @@ impl<'a> WebSockets<'a> {
                     debug!("send ping");
                     socket.0.send(Message::Pong(vec![]))?;
                     self.last_ping = now;
-                    
                 }
                 
                 match socket.0.read()? {

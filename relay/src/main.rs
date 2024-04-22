@@ -98,7 +98,7 @@ async fn main() -> DreamrunnerResult<()> {
 
   let ws_running = running.clone();
   let ws_tx = tx.clone();
-  let ws_handle = tokio::task::spawn(async move {
+  let _ws_handle = tokio::task::spawn(async move {
     let callback: Callback = Box::new(|event: WebSocketEvent| {
       match event {
         WebSocketEvent::AccountUpdate(_) => {
@@ -145,7 +145,7 @@ async fn main() -> DreamrunnerResult<()> {
     DreamrunnerResult::<_>::Ok(())
   });
 
-  let engine_handle = tokio::task::spawn(async move {
+  let _engine_handle = tokio::task::spawn(async move {
     let mut engine = Engine::new(
       client,
       rx,
@@ -188,14 +188,13 @@ async fn main() -> DreamrunnerResult<()> {
   tokio::signal::ctrl_c().await?;
   warn!("SIGINT received, shutting down");
   running.store(false, Ordering::Relaxed);
-  // std::process::exit(0);
 
-  let _ = ws_handle.await?;
-  let _ = engine_handle.await?;
+  // let s = ws_handle.await?;
+  // let _ = engine_handle.await?;
   let _ = user_stream_handle.await?;
   let _ = server_handle.await?;
-
-  Ok(())
+  
+  std::process::exit(0);
 }
 
 #[get("/")]
