@@ -86,7 +86,7 @@ async fn main() -> DreamrunnerResult<()> {
   let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
 
   tokio::task::spawn(async move {
-    let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
+    let callback: Callback = Box::new(|event: WebSocketEvent| {
       match event {
         WebSocketEvent::Kline(_) => {
           Ok(tx.send(event)?)
@@ -100,6 +100,7 @@ async fn main() -> DreamrunnerResult<()> {
         _ => DreamrunnerResult::<_>::Ok(()),
       }
     });
+    let mut ws = WebSockets::new(testnet,  callback);
 
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
     

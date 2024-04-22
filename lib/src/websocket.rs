@@ -19,7 +19,6 @@ use std::time::SystemTime;
 use url::Url;
 use tokio_tungstenite::tungstenite::Message;
 use std::net::TcpStream;
-use crossbeam::channel::Receiver;
 use tokio_tungstenite::tungstenite::handshake::client::Response;
 use tokio_tungstenite::tungstenite::protocol::WebSocket;
 use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
@@ -70,6 +69,7 @@ pub enum WebSocketEvent {
 }
 
 pub type Callback<'a> = Box<dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a>;
+pub type CallbackInner<'a> = dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a;
 // pub type Callback = Box<dyn FnMut(WebSocketEvent) -> Pin<Box<dyn Future<Output = DreamrunnerResult<()>> + Send>> + Sync>;
 
 pub struct WebSockets<'a> {
@@ -101,7 +101,7 @@ enum Events {
 }
 
 impl<'a> WebSockets<'a> {
-    pub fn new(testnet: bool, handler: Callback) -> WebSockets {
+    pub fn new(testnet: bool, handler: Callback<'a>) -> WebSockets<'a> {
         WebSockets {
             socket: None,
             handler,

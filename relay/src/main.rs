@@ -113,7 +113,7 @@ async fn main() -> DreamrunnerResult<()> {
       };
       DreamrunnerResult::<_>::Ok(())
     });
-    
+
     let mut ws = WebSockets::new(testnet, callback);
 
     let subs = vec![listen_key];
@@ -184,7 +184,7 @@ async fn main() -> DreamrunnerResult<()> {
     info!("⚠️ Shutting down server");
     DreamrunnerResult::<_>::Ok(())
   });
-  
+
   tokio::signal::ctrl_c().await?;
   warn!("SIGINT received, shutting down");
   running.store(false, Ordering::Relaxed);
@@ -193,7 +193,7 @@ async fn main() -> DreamrunnerResult<()> {
   // let _ = engine_handle.await?;
   let _ = user_stream_handle.await?;
   let _ = server_handle.await?;
-  
+
   std::process::exit(0);
 }
 
