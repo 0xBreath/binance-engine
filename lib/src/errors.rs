@@ -42,6 +42,8 @@ pub enum DreamrunnerError {
     Json(#[from] serde_json::Error),
     #[error("Tungstenite: {0}")]
     Tungstenite(#[from] tungstenite::Error),
+    #[error("TokioTungstenite: {0}")]
+    TokioTungstenite(#[from] tokio_tungstenite::tungstenite::Error),
     #[error("OrderStatusParseError: {0}")]
     OrderStatusParseError(String),
     #[error("Custom: {0}")]
@@ -70,6 +72,8 @@ pub enum DreamrunnerError {
     PayloadError(#[from] actix_web::error::PayloadError),
     #[error("Alert missing price")]
     AlertMissingPrice,
+    #[error("JoinError: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
 }
 
 impl ResponseError for DreamrunnerError {

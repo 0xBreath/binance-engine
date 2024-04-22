@@ -1,5 +1,7 @@
 #![allow(clippy::result_large_err)]
 
+use std::future::Future;
+use std::pin::Pin;
 use crate::config::Config;
 use crate::errors::{DreamrunnerError, DreamrunnerResult};
 use crate::model::{
@@ -7,13 +9,20 @@ use crate::model::{
 };
 use log::*;
 use serde::{Deserialize, Serialize};
-use std::net::TcpStream;
+// use std::net::TcpStream;
+use tokio::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::SystemTime;
-use tungstenite::handshake::client::Response;
-use tungstenite::protocol::WebSocket;
-use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{connect, Message};
+use std::time::{Duration, SystemTime};
+use futures::{StreamExt, SinkExt};
+use tokio::runtime::Handle;
+// use tokio_tungstenite::tungstenite::http::Response;
+use tokio_tungstenite::tungstenite::handshake::client::Response;
+use tokio_tungstenite::tungstenite::protocol::{WebSocket, WebSocketConfig};
+// use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
+use tokio_tungstenite::MaybeTlsStream;
+use tokio_tungstenite::tungstenite::{connect, Message};
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::connect_async;
 use url::Url;
 
 #[allow(clippy::all)]
@@ -60,22 +69,31 @@ pub enum WebSocketEvent {
     Kline(KlineEvent),
 }
 
-pub type Callback<'a> = Box<dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a>;
+// pub type Callback<'a> = Box<dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a>;
+pub type Callback = Box<dyn FnMut(WebSocketEvent) -> Pin<Box<dyn Future<Output = DreamrunnerResult<()>> + Send>> + Sync>;
 
-pub struct WebSockets<'a> {
-    pub socket: Option<(WebSocket<MaybeTlsStream<TcpStream>>, Response)>,
-    handler: Callback<'a>,
+pub struct WebSockets {
+    pub socket: Option<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response)>,
+    handler: Callback,
     testnet: bool,
     last_ping: SystemTime
 }
 
-impl<'a> Drop for WebSockets<'a> {
+impl Drop for WebSockets {
     fn drop(&mut self) {
         info!("Drop websocket");
         if let Some(ref mut socket) = self.socket {
-            socket.0.close(None).unwrap();
+            tokio::task::block_in_place(move || {
+                Handle::current().block_on(async move {
+                    socket.0.close(None).await.unwrap()
+                })
+            });
         }
-        self.disconnect().unwrap();
+        tokio::task::block_in_place(move || {
+            Handle::current().block_on(async move {
+                self.disconnect().await.unwrap()
+            })
+        });
     }
 }
 
@@ -89,61 +107,57 @@ enum Events {
     Kline(KlineEvent),
 }
 
-impl<'a> WebSockets<'a> {
-    pub fn new<C>(testnet: bool, handler: C) -> WebSockets<'a>
-    where
-        C: FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a,
+impl WebSockets {
+    pub fn new(testnet: bool, handler: Callback) -> WebSockets
+    // where
+        // C: FnMut(WebSocketEvent) -> Pin<Box<dyn Future<Output = DreamrunnerResult<()>> + Send>> + Sync + 'static,
+        // C: FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a,
     {
         WebSockets {
             socket: None,
-            handler: Box::new(handler),
+            handler,
             testnet,
             last_ping: SystemTime::now()
         }
     }
 
     #[allow(dead_code)]
-    pub fn connect(&mut self, subscription: &str) -> DreamrunnerResult<()> {
-        self.connect_wss(&WebSocketAPI::Default.params(subscription, self.testnet))
+    pub async fn connect(&mut self, subscription: &str) -> DreamrunnerResult<()> {
+        self.connect_wss(&WebSocketAPI::Default.params(subscription, self.testnet)).await
     }
 
-    pub fn connect_with_config(&mut self, subscription: &str, config: &Config) -> DreamrunnerResult<()> {
+    pub async fn connect_with_config(&mut self, subscription: &str, config: &Config) -> DreamrunnerResult<()> {
         self.connect_wss(
-            &WebSocketAPI::Custom(config.ws_endpoint.clone()).params(subscription, self.testnet),
-        )
+            &WebSocketAPI::Custom(config.ws_endpoint.clone()).params(subscription, self.testnet)
+        ).await
     }
 
-    pub fn connect_multiple_streams(&mut self, endpoints: &[String], testnet: bool) -> DreamrunnerResult<()> {
-        self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet))?;
+    pub async fn connect_multiple_streams(&mut self, endpoints: &[String], testnet: bool) -> DreamrunnerResult<()> {
+        self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet)).await?;
         info!("Binance websocket connected");
         Ok(())
     }
 
-    fn connect_wss(&mut self, wss: &str) -> DreamrunnerResult<()> {
+    async fn connect_wss(&mut self, wss: &str) -> DreamrunnerResult<()> {
         let url = Url::parse(wss)?;
-        match connect(url) {
+        match connect_async(url).await {
             Ok(answer) => {
                 self.socket = Some(answer);
                 Ok(())
             }
-            Err(e) => Err(DreamrunnerError::Tungstenite(e)),
+            Err(e) => Err(DreamrunnerError::TokioTungstenite(e)),
         }
     }
 
-    pub fn disconnect(&mut self) -> DreamrunnerResult<()> {
+    pub async fn disconnect(&mut self) -> DreamrunnerResult<()> {
         if let Some(ref mut socket) = self.socket {
-            socket.0.close(None)?;
+            socket.0.close(None).await?;
             return Ok(());
         }
         Err(DreamrunnerError::WebSocketDisconnected)
     }
 
-    #[allow(dead_code)]
-    pub fn test_handle_msg(&mut self, msg: &str) -> DreamrunnerResult<()> {
-        self.handle_msg(msg)
-    }
-
-    fn handle_msg(&mut self, msg: &str) -> DreamrunnerResult<()> {
+    async fn handle_msg(&mut self, msg: &str) -> DreamrunnerResult<()> {
         let value: serde_json::Value = serde_json::from_str(msg)?;
         if let Some(data) = value.get("data") {
             let msg = &data.to_string();
@@ -156,7 +170,7 @@ impl<'a> WebSockets<'a> {
                     Events::Trade(v) => WebSocketEvent::Trade(v),
                     Events::Kline(v) => WebSocketEvent::Kline(v),
                 };
-                (self.handler)(action)?;
+                (self.handler)(action).await?;
             }
         }
         if let Ok(events) = serde_json::from_value::<Events>(value) {
@@ -167,12 +181,12 @@ impl<'a> WebSockets<'a> {
                 Events::Trade(v) => WebSocketEvent::Trade(v),
                 Events::Kline(v) => WebSocketEvent::Kline(v),
             };
-            (self.handler)(action)?;
+            (self.handler)(action).await?;
         }
         Ok(())
     }
 
-    pub fn event_loop(&mut self, running: &AtomicBool) -> DreamrunnerResult<()> {
+    pub async fn event_loop(&mut self, running: &AtomicBool) -> DreamrunnerResult<()> {
         while running.load(Ordering::Relaxed) {
             if let Some(ref mut socket) = self.socket {
                 let now = SystemTime::now();
@@ -180,44 +194,49 @@ impl<'a> WebSockets<'a> {
                 // but it does keep Heroku from closing the websocket connection
                 if now.duration_since(self.last_ping)?.as_secs() > 30 {
                     debug!("send ping");
-                    socket.0.write_message(Message::Pong(vec![]))?;
+                    // socket.0.write_message(Message::Pong(vec![]))?;
+                    socket.0.send(Message::Ping(vec![])).await?;
                     self.last_ping = now;
+                    
                 }
                 
-                match socket.0.read_message()? {
-                    Message::Text(msg) => match self.handle_msg(&msg) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            if let DreamrunnerError::WebSocketDisconnected = e {
-                                error!("Websocket disconnected: {:#?}", e);
-                                return Err(e);
-                            }
-                        }
-                    },
-                    Message::Ping(msg) => {
-                        debug!("recv ping");
-                        match socket.0.write_message(Message::Pong(msg)) {
-                            Ok(_) => {
-                                info!("send pong");
-                            }
+                if let Some(msg) = socket.0.next().await {
+                    match msg? {
+                        Message::Text(msg) => match self.handle_msg(&msg).await {
+                            Ok(_) => {}
                             Err(e) => {
-                                error!("Failed to reply with pong: {:#?}", e);
-                                return Err(DreamrunnerError::Tungstenite(e))
-                            },
+                                if let DreamrunnerError::WebSocketDisconnected = e {
+                                    error!("Websocket disconnected: {:#?}", e);
+                                    return Err(e);
+                                }
+                            }
+                        },
+                        Message::Ping(msg) => {
+                            debug!("recv ping");
+                            match socket.0.send(Message::Pong(msg)).await {
+                                Ok(_) => {
+                                    info!("send pong");
+                                }
+                                Err(e) => {
+                                    error!("Failed to reply with pong: {:#?}", e);
+                                    return Err(DreamrunnerError::TokioTungstenite(e))
+                                },
+                            }
                         }
-                    }
-                    Message::Pong(_) => {
-                        info!("recv pong");
-                    }
-                    Message::Binary(_) | Message::Frame(_) => return Ok(()),
-                    Message::Close(e) => {
-                        return match e {
-                            Some(e) => {
-                                error!("Websocket closed: {:#?}", e);
-                                Err(DreamrunnerError::Custom(e.to_string()))
-                            },
-                            None => Err(DreamrunnerError::WebSocketDisconnected),
+                        Message::Pong(_) => {
+                            info!("recv pong");
                         }
+                        Message::Binary(_) | Message::Frame(_) => return Ok(()),
+                        Message::Close(e) => {
+                            return match e {
+                                Some(e) => {
+                                    error!("Websocket closed: {:#?}", e);
+                                    Err(DreamrunnerError::Custom(e.to_string()))
+                                },
+                                None => Err(DreamrunnerError::WebSocketDisconnected),
+                            }
+                        }
+                        
                     }
                 }
             }

@@ -59,7 +59,7 @@ impl Engine {
     // get initial asset balances
     self.update_assets().await?;
     self.log_assets();
-
+    
     while let Ok(msg) = self.rx.recv() {
       match msg {
         ChannelMsg::Websocket(event) => {
@@ -189,7 +189,7 @@ impl Engine {
       entry,
     })
   }
-  
+
   pub async fn handle_alert(&mut self, alert: Alert) -> DreamrunnerResult<()> {
     match alert.price {
       None => {
@@ -213,7 +213,7 @@ impl Engine {
         }
       }
     }
-    
+
     Ok(())
   }
 

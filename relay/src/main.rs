@@ -27,7 +27,7 @@ pub const BASE_ASSET: &str = "SOL";
 pub const QUOTE_ASSET: &str = "USDT";
 pub const TICKER: &str = "SOLUSDT";
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> DreamrunnerResult<()> {
   dotenv().ok();
   init_logger()?;
@@ -61,6 +61,9 @@ async fn main() -> DreamrunnerResult<()> {
     )?
   };
 
+  // controller to kill as tokio tasks on SIGINT
+  let running = Arc::new(AtomicBool::new(true));
+
   let user_stream = UserStream {
     client: client.clone(),
     recv_window: 10000,
@@ -68,12 +71,12 @@ async fn main() -> DreamrunnerResult<()> {
   let answer = user_stream.start().await?;
   let listen_key = answer.listen_key;
 
-  let running = AtomicBool::new(true);
+  let user_stream_running = running.clone();
   let listen_key_copy = listen_key.clone();
-  tokio::task::spawn(async move {
+  let user_stream_handle = tokio::task::spawn(async move {
     let mut last_ping = SystemTime::now();
 
-    while running.load(Ordering::Relaxed) {
+    while user_stream_running.load(Ordering::Relaxed) {
       let now = SystemTime::now();
       // check if timestamp is 30 seconds after last UserStream keep alive ping
       let elapsed = now.duration_since(last_ping).map(|d| d.as_secs())?;
@@ -86,55 +89,81 @@ async fn main() -> DreamrunnerResult<()> {
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
     }
+    info!("⚠️ Shutting down user stream");
     DreamrunnerResult::<_>::Ok(())
   });
 
   
   let (tx, rx) = crossbeam::channel::unbounded::<ChannelMsg>();
-  
+
+  let ws_running = running.clone();
   let ws_tx = tx.clone();
-  tokio::task::spawn(async move {
-    let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
-      match event {
-        WebSocketEvent::AccountUpdate(_) => {
-          let msg = ChannelMsg::Websocket(event);
-          Ok(ws_tx.send(msg)?)
-        }
-        WebSocketEvent::OrderTrade(_) => {
-          let msg = ChannelMsg::Websocket(event);
-          Ok(ws_tx.send(msg)?)
-        }
-        _ => Ok(()),
-      }
+  let ws_handle = tokio::task::spawn(async move {
+    let callback: Callback = Box::new(move |event: WebSocketEvent| {
+      let ws_tx = ws_tx.clone();
+      Box::pin(async move {
+        match event {
+          WebSocketEvent::AccountUpdate(_) => {
+            let msg = ChannelMsg::Websocket(event);
+            ws_tx.send(msg)?
+          }
+          WebSocketEvent::OrderTrade(_) => {
+            let msg = ChannelMsg::Websocket(event);
+            ws_tx.send(msg)?
+          }
+          _ => (),
+        };
+        DreamrunnerResult::<_>::Ok(())
+      })
     });
+    
+    let mut ws = WebSockets::new(testnet, callback);
 
     let subs = vec![listen_key];
-    while AtomicBool::new(true).load(Ordering::Relaxed) {
-      match ws.connect_multiple_streams(&subs, testnet) {
+    while ws_running.load(Ordering::Relaxed) {
+      match ws.connect_multiple_streams(&subs, testnet).await {
         Err(e) => {
           error!("🛑Failed to connect Binance websocket: {}", e);
-          tokio::task::block_in_place(move || {
-            Handle::current().block_on(async move {
-              tokio::time::sleep(Duration::from_secs(5)).await
-            })
-          });
+          tokio::time::sleep(Duration::from_secs(5)).await
         }
         Ok(_) => {
-          if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
+          if let Err(e) = ws.event_loop(&ws_running).await {
             error!("🛑Binance websocket error: {:#?}", e);
-            tokio::task::block_in_place(move || {
-              Handle::current().block_on(async move {
-                tokio::time::sleep(Duration::from_secs(5)).await
-              })
-            });
+            tokio::time::sleep(Duration::from_secs(5)).await
           }
+          warn!("Finished event loop");
         }
       }
     }
+    // while ws_running.load(Ordering::Relaxed) {
+    //   match ws.connect_multiple_streams(&subs, testnet) {
+    //     Err(e) => {
+    //       error!("🛑Failed to connect Binance websocket: {}", e);
+    //       tokio::task::block_in_place(move || {
+    //         Handle::current().block_on(async move {
+    //           tokio::time::sleep(Duration::from_secs(5)).await
+    //         })
+    //       });
+    //     }
+    //     Ok(_) => {
+    //       if let Err(e) = ws.event_loop(&ws_running).await {
+    //         error!("🛑Binance websocket error: {:#?}", e);
+    //         tokio::task::block_in_place(move || {
+    //           Handle::current().block_on(async move {
+    //             tokio::time::sleep(Duration::from_secs(5)).await
+    //           })
+    //         });
+    //       }
+    //       warn!("Finished event loop");
+    //     }
+    //   }
+    // }
+    info!("⚠️ Shutting down websocket listener");
+    ws.disconnect().await?;
     DreamrunnerResult::<_>::Ok(())
   });
 
-  tokio::task::spawn(async move {
+  let engine_handle = tokio::task::spawn(async move {
     let mut engine = Engine::new(
       client,
       rx,
@@ -146,12 +175,13 @@ async fn main() -> DreamrunnerResult<()> {
       equity_pct,
     );
     engine.ignition().await?;
+    info!("⚠️ Shutting down engine");
     DreamrunnerResult::<_>::Ok(())
   });
 
   let state = Data::new(Arc::new(tx));
 
-  HttpServer::new(move || {
+  let server = HttpServer::new(move || {
     let cors = Cors::default()
       .allow_any_origin()
       .allowed_methods(vec!["GET", "POST"])
@@ -165,9 +195,26 @@ async fn main() -> DreamrunnerResult<()> {
       .service(post_alert)
   })
     .bind(bind_address)?
-    .run()
-    .await
-    .map_err(DreamrunnerError::from)
+    .run();
+
+  let server_handle = tokio::task::spawn(async move {
+    server.await?;
+    info!("⚠️ Shutting down server");
+    DreamrunnerResult::<_>::Ok(())
+  });
+
+  info!("Listening for SIGINT");
+  tokio::signal::ctrl_c().await?;
+  warn!("SIGINT received, shutting down");
+  running.store(false, Ordering::Relaxed);
+  // std::process::exit(0);
+
+  let _ = ws_handle.await?;
+  let _ = engine_handle.await?;
+  let _ = user_stream_handle.await?;
+  let _ = server_handle.await?;
+
+  Ok(())
 }
 
 #[get("/")]
@@ -179,6 +226,6 @@ async fn test() -> DreamrunnerResult<HttpResponse> {
 async fn post_alert(state: Data<Arc<Sender<ChannelMsg>>>, payload: Payload) -> DreamrunnerResult<HttpResponse> {
   let alert = Engine::alert(payload).await?;
   state.send(ChannelMsg::Alert(alert))?;
-  
+
   Ok(HttpResponse::Ok().body("Ok"))
 }
