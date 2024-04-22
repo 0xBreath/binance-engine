@@ -57,7 +57,6 @@ async fn main() -> DreamrunnerResult<()> {
 
   let user_stream = UserStream {
     client: client.clone(),
-    recv_window: 10000,
   };
   let answer = user_stream.start().await?;
   let listen_key = answer.listen_key;
@@ -66,11 +65,11 @@ async fn main() -> DreamrunnerResult<()> {
   let listen_key_copy = listen_key.clone();
   tokio::task::spawn(async move {
     let mut last_ping = SystemTime::now();
-
+    
     while running.load(Ordering::Relaxed) {
       let now = SystemTime::now();
       // check if timestamp is 30 seconds after last UserStream keep alive ping
-      let elapsed = now.duration_since(last_ping).map(|d| d.as_secs())?;
+      let elapsed = now.duration_since(last_ping)?.as_secs();
 
       if elapsed > 30 {
         if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
@@ -80,6 +79,7 @@ async fn main() -> DreamrunnerResult<()> {
       }
       tokio::time::sleep(Duration::new(1, 0)).await;
     }
+    warn!("🟡 Shutting down user stream");
     DreamrunnerResult::<_>::Ok(())
   });
 
@@ -126,7 +126,7 @@ async fn main() -> DreamrunnerResult<()> {
         }
       }
     }
-    
+    warn!("🟡 Shutting websocket stream");
     DreamrunnerResult::<_>::Ok(())
   });
 

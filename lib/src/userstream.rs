@@ -6,8 +6,7 @@ use crate::DreamrunnerResult;
 
 #[derive(Clone)]
 pub struct UserStream {
-    pub client: Client,
-    pub recv_window: u64,
+    pub client: Client
 }
 
 impl UserStream {
@@ -16,12 +15,12 @@ impl UserStream {
     }
     
     pub async fn keep_alive(&self, listen_key: &str) -> DreamrunnerResult<Success> {
-        debug!("Keep user data stream alive");
+        debug!("Keep user stream alive");
         self.client.put(API::Spot(Spot::UserDataStream), listen_key).await
     }
 
     pub async fn close(&self, listen_key: &str) -> DreamrunnerResult<Success> {
-        warn!("Closing user data stream");
+        warn!("Closing user stream");
         self.client
             .delete(API::Spot(Spot::UserDataStream), listen_key).await
     }

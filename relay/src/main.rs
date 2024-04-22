@@ -66,30 +66,30 @@ async fn main() -> DreamrunnerResult<()> {
 
   let user_stream = UserStream {
     client: client.clone(),
-    recv_window: 10000,
   };
-  let answer = user_stream.start().await?;
-  let listen_key = answer.listen_key;
+  let listen_key = user_stream.start().await?.listen_key;
 
   let user_stream_running = running.clone();
   let listen_key_copy = listen_key.clone();
   let user_stream_handle = tokio::task::spawn(async move {
     let mut last_ping = SystemTime::now();
-
+    let mut has_pinged = false;
+    
     while user_stream_running.load(Ordering::Relaxed) {
       let now = SystemTime::now();
       // check if timestamp is 30 seconds after last UserStream keep alive ping
-      let elapsed = now.duration_since(last_ping).map(|d| d.as_secs())?;
-
-      if elapsed > 30 {
+      let elapsed = now.duration_since(last_ping)?.as_secs();
+      if (!has_pinged && elapsed > 10) || (has_pinged && elapsed > 30) {
         if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
-          error!("🛑Error on user stream keep alive: {}", e);
+          error!("🛑 Error on user stream keep alive: {}", e);
         }
+        info!("keep alive took: {}s", now.elapsed().unwrap().as_secs());
         last_ping = now;
+        has_pinged = true;
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    info!("⚠️ Shutting down user stream");
+    warn!("🟡 Shutting down user stream");
     DreamrunnerResult::<_>::Ok(())
   });
 
@@ -98,7 +98,7 @@ async fn main() -> DreamrunnerResult<()> {
 
   let ws_running = running.clone();
   let ws_tx = tx.clone();
-  let _ws_handle = tokio::task::spawn(async move {
+  tokio::task::spawn(async move {
     let callback: Callback = Box::new(|event: WebSocketEvent| {
       match event {
         WebSocketEvent::AccountUpdate(_) => {
@@ -120,7 +120,7 @@ async fn main() -> DreamrunnerResult<()> {
     while ws_running.load(Ordering::Relaxed) {
       match ws.connect_multiple_streams(&subs, testnet) {
         Err(e) => {
-          error!("🛑Failed to connect Binance websocket: {}", e);
+          error!("🛑 Failed to connect Binance websocket: {}", e);
           tokio::task::block_in_place(move || {
             Handle::current().block_on(async move {
               tokio::time::sleep(Duration::from_secs(5)).await
@@ -129,23 +129,23 @@ async fn main() -> DreamrunnerResult<()> {
         }
         Ok(_) => {
           if let Err(e) = ws.event_loop(&ws_running) {
-            error!("🛑Binance websocket error: {:#?}", e);
+            error!("🛑 Binance websocket error: {:#?}", e);
             tokio::task::block_in_place(move || {
               Handle::current().block_on(async move {
                 tokio::time::sleep(Duration::from_secs(5)).await
               })
             });
           }
-          warn!("Finished event loop");
+          warn!("Exited event loop");
         }
       }
     }
-    info!("⚠️ Shutting down websocket listener");
+    warn!("🟡 Shutting down websocket listener");
     ws.disconnect()?;
     DreamrunnerResult::<_>::Ok(())
   });
 
-  let _engine_handle = tokio::task::spawn(async move {
+  tokio::task::spawn(async move {
     let mut engine = Engine::new(
       client,
       rx,
@@ -157,7 +157,7 @@ async fn main() -> DreamrunnerResult<()> {
       equity_pct,
     );
     engine.ignition().await?;
-    info!("⚠️ Shutting down engine");
+    warn!("🟡 Shutting down engine");
     DreamrunnerResult::<_>::Ok(())
   });
 
@@ -181,16 +181,14 @@ async fn main() -> DreamrunnerResult<()> {
 
   let server_handle = tokio::task::spawn(async move {
     server.await?;
-    info!("⚠️ Shutting down server");
+    warn!("🟡 Shutting down server");
     DreamrunnerResult::<_>::Ok(())
   });
 
   tokio::signal::ctrl_c().await?;
   warn!("SIGINT received, shutting down");
   running.store(false, Ordering::Relaxed);
-
-  // let s = ws_handle.await?;
-  // let _ = engine_handle.await?;
+  
   let _ = user_stream_handle.await?;
   let _ = server_handle.await?;
 

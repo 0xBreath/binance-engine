@@ -52,3 +52,15 @@ pub struct Pnl {
   pub quote_data: Vec<Data>,
   pub pct_data: Vec<Data>
 }
+impl Pnl {
+  pub fn print(&self) {
+    println!("Return: {}%", self.pct);
+    println!("Return: ${}", self.quote);
+    println!("Avg Trade Return: ${}", self.avg_pct_pnl);
+    println!("Avg Trade Size: ${}", self.avg_quote_trade_size);
+    println!("Win Rate: {}%", self.win_rate);
+    println!("Max Drawdown: {}%", self.max_pct_drawdown);
+    println!("Total Trades: {}", self.total_trades);
+
+  }
+}

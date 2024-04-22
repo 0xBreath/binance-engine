@@ -52,10 +52,12 @@ impl Engine {
   }
 
   pub async fn ignition(&mut self) -> DreamrunnerResult<()> {
-    // cancel all open orders to start with a clean slate
-    self.cancel_all_open_orders().await?;
-    // equalize base and quote assets to 50/50
-    self.equalize_assets().await?;
+    if !self.disable_trading {
+      // cancel all open orders to start with a clean slate
+      self.cancel_all_open_orders().await?;
+      // equalize base and quote assets to 50/50
+      self.equalize_assets().await?;
+    }
     // get initial asset balances
     self.update_assets().await?;
     self.log_assets();
