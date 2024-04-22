@@ -159,6 +159,11 @@ impl Account {
             let drawdown = (drawdown as f64).min(d.y - max);
             (max, drawdown)
         }).1;
+        
+        let first_trade = Time::from_unix_ms(trades.last().unwrap().event_time).to_string();
+        let last_trade = Time::from_unix_ms(trades.first().unwrap().event_time).to_string();
+        info!("trade period: {} - {}", first_trade, last_trade);
+        
         Ok(Pnl {
             quote: trunc!(quote, 4),
             pct: trunc!(pct, 4),

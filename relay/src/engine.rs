@@ -7,15 +7,14 @@ use std::time::SystemTime;
 use actix_web::web::{BytesMut, Payload};
 use crossbeam::channel::Receiver;
 use lib::trade::*;
-use time_series::{trunc, Time, Signal};
+use time_series::{trunc, Time};
 use futures::StreamExt;
-use crate::alert::Alert;
 
 const MAX_SIZE: usize = 262_144; // max payload size is 256k
 
 pub struct Engine {
   pub client: Client,
-  pub rx: Receiver<WebSocketEvent>,
+  pub rx: Receiver<ChannelMsg>,
   pub disable_trading: bool,
   pub base_asset: String,
   pub quote_asset: String,
@@ -30,7 +29,7 @@ impl Engine {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     client: Client,
-    rx: Receiver<WebSocketEvent>,
+    rx: Receiver<ChannelMsg>,
     disable_trading: bool,
     base_asset: String,
     quote_asset: String,
@@ -60,6 +59,45 @@ impl Engine {
     // get initial asset balances
     self.update_assets().await?;
     self.log_assets();
+
+    while let Ok(msg) = self.rx.recv() {
+      match msg {
+        ChannelMsg::Websocket(event) => {
+          match event {
+            WebSocketEvent::AccountUpdate(account_update) => {
+              let assets = account_update.assets(&self.quote_asset, &self.base_asset)?;
+              info!(
+                "Account Update, {}: {}, {}: {}",
+                self.quote_asset, assets.free_quote, self.base_asset, assets.free_base
+              );
+            }
+            WebSocketEvent::OrderTrade(event) => {
+              let order_type = ActiveOrder::client_order_id_suffix(&event.new_client_order_id);
+              let entry_price = trunc!(event.price.parse::<f64>()?, 2);
+              info!(
+                "{},  {},  {} @ {},  Execution: {},  Status: {},  Order: {}",
+                event.symbol,
+                event.new_client_order_id,
+                event.side,
+                entry_price,
+                event.execution_type,
+                event.order_status,
+                order_type
+              );
+              // update state
+              self.update_active_order(event)?;
+              // create or cancel orders depending on state
+              self.check_active_order().await?;
+            }
+            _ => (),
+          }
+        }
+        ChannelMsg::Alert(alert) => {
+          debug!("{:#?}", alert);
+          self.handle_alert(alert).await?;
+        }
+      }
+    }
 
     Ok(())
   }
@@ -151,26 +189,35 @@ impl Engine {
       entry,
     })
   }
-
-  pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
-    match signal {
-      Signal::Long((price, time)) => {
-        let order = self.long_order(price, time)?;
-        self.active_order.add_entry(order.entry.clone());
-        self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
-        Ok(())
+  
+  pub async fn handle_alert(&mut self, alert: Alert) -> DreamrunnerResult<()> {
+    match alert.price {
+      None => {
+        error!("🛑 Alert price is missing");
+        return Err(DreamrunnerError::AlertMissingPrice);
       },
-      Signal::Short((price, time)) => {
-        let order = self.short_order(price, time)?;
-        self.active_order.add_entry(order.entry.clone());
-        self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
-        Ok(())
-      },
-      Signal::None => Ok(())
+      Some(price) => {
+        match alert.position {
+          Position::Long => {
+            info!("🟢 Long: {:#?}", alert);
+            let order = self.long_order(price, Time::from_unix_ms(alert.timestamp))?;
+            self.active_order.add_entry(order.entry.clone());
+            self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
+          },
+          Position::Short => {
+            info!("🔴 Short: {:#?}", alert);
+            let order = self.short_order(price, Time::from_unix_ms(alert.timestamp))?;
+            self.active_order.add_entry(order.entry.clone());
+            self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
+          }
+        }
+      }
     }
+    
+    Ok(())
   }
 
-  async fn parse_query<T: DeserializeOwned>(&self, mut payload: Payload) -> DreamrunnerResult<T> {
+  async fn parse_query<T: DeserializeOwned>(mut payload: Payload) -> DreamrunnerResult<T> {
     let mut body = BytesMut::new();
     while let Some(chunk) = payload.next().await {
       let chunk = chunk?;
@@ -182,8 +229,8 @@ impl Engine {
     Ok(serde_json::from_slice::<T>(&body)?)
   }
 
-  pub async fn alert(&self, payload: Payload) -> DreamrunnerResult<Alert> {
-    self.parse_query::<Alert>(payload).await
+  pub async fn alert(payload: Payload) -> DreamrunnerResult<Alert> {
+    Self::parse_query::<Alert>(payload).await
   }
 
   pub async fn reset_active_order(&mut self) -> DreamrunnerResult<Vec<OrderCanceled>> {

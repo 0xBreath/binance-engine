@@ -1,4 +1,3 @@
-mod alert;
 mod engine;
 mod utils;
 
@@ -17,6 +16,7 @@ use actix_web::{
   web::{Data, Payload},
   App, HttpResponse, HttpServer,
 };
+use crossbeam::channel::Sender;
 use tokio::runtime::Handle;
 
 // Binance spot TEST network
@@ -84,22 +84,25 @@ async fn main() -> DreamrunnerResult<()> {
         }
         last_ping = now;
       }
-      tokio::time::sleep(Duration::new(1, 0)).await;
+      tokio::time::sleep(Duration::from_secs(1)).await;
     }
     DreamrunnerResult::<_>::Ok(())
   });
 
   
-  let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
+  let (tx, rx) = crossbeam::channel::unbounded::<ChannelMsg>();
   
+  let ws_tx = tx.clone();
   tokio::task::spawn(async move {
     let mut ws = WebSockets::new(testnet, |event: WebSocketEvent| {
       match event {
         WebSocketEvent::AccountUpdate(_) => {
-          Ok(tx.send(event)?)
+          let msg = ChannelMsg::Websocket(event);
+          Ok(ws_tx.send(msg)?)
         }
         WebSocketEvent::OrderTrade(_) => {
-          Ok(tx.send(event)?)
+          let msg = ChannelMsg::Websocket(event);
+          Ok(ws_tx.send(msg)?)
         }
         _ => Ok(()),
       }
@@ -131,19 +134,22 @@ async fn main() -> DreamrunnerResult<()> {
     DreamrunnerResult::<_>::Ok(())
   });
 
-  let mut engine = Engine::new(
-    client,
-    rx,
-    disable_trading,
-    BASE_ASSET.to_string(),
-    QUOTE_ASSET.to_string(),
-    TICKER.to_string(),
-    min_notional,
-    equity_pct,
-  );
-  engine.ignition().await?;
+  tokio::task::spawn(async move {
+    let mut engine = Engine::new(
+      client,
+      rx,
+      disable_trading,
+      BASE_ASSET.to_string(),
+      QUOTE_ASSET.to_string(),
+      TICKER.to_string(),
+      min_notional,
+      equity_pct,
+    );
+    engine.ignition().await?;
+    DreamrunnerResult::<_>::Ok(())
+  });
 
-  let state = Data::new(Arc::new(engine));
+  let state = Data::new(Arc::new(tx));
 
   HttpServer::new(move || {
     let cors = Cors::default()
@@ -170,14 +176,9 @@ async fn test() -> DreamrunnerResult<HttpResponse> {
 }
 
 #[post("/alert")]
-async fn post_alert(state: Data<Arc<Engine>>, payload: Payload) -> DreamrunnerResult<HttpResponse> {
-  let alert = match state.alert(payload).await {
-    Ok(res) => Ok(res),
-    Err(e) => {
-      error!("{:?}", e);
-      Err(e)
-    }
-  }?;
-  info!("{:#?}", alert);
-  Ok(HttpResponse::Ok().json(alert))
+async fn post_alert(state: Data<Arc<Sender<ChannelMsg>>>, payload: Payload) -> DreamrunnerResult<HttpResponse> {
+  let alert = Engine::alert(payload).await?;
+  state.send(ChannelMsg::Alert(alert))?;
+  
+  Ok(HttpResponse::Ok().body("Ok"))
 }

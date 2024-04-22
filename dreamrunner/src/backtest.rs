@@ -345,10 +345,9 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
   let capital = 1_000.0;
   let mut backtest = Backtest::new(capital);
 
-  let start_time = Time::from_unix_ms(1713300000000);
-  let end_time = Time::from_unix_ms(1713750000000);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(16), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(14), Some(13), Some(59), Some(52));
+  let start_time = Time::new(2023, &Month::from_num(9), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(21), Some(18), Some(46), Some(28));
 
   let out_file = "solusdt_15m.csv";
   let csv = PathBuf::from(out_file);

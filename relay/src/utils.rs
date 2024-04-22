@@ -4,6 +4,7 @@ use simplelog::{
   ColorChoice, Config as SimpleLogConfig, TermLogger,
   TerminalMode,
 };
+
 pub fn init_logger() -> anyhow::Result<()> {
   Ok(TermLogger::init(
     LevelFilter::Info,

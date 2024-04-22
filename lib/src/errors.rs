@@ -7,7 +7,7 @@ use std::time::SystemTimeError;
 
 use actix_web::{error::ResponseError, http::StatusCode, HttpResponse};
 use thiserror::Error;
-use crate::WebSocketEvent;
+use crate::{ChannelMsg, WebSocketEvent};
 
 pub type DreamrunnerResult<T> = Result<T, DreamrunnerError>;
 
@@ -58,14 +58,18 @@ pub enum DreamrunnerError {
     ParseInt(#[from] std::num::ParseIntError),
     #[error("Anyhow: {0}")]
     Anyhow(#[from] anyhow::Error),
-    #[error("SendError: {0}")]
-    SendError(#[from] crossbeam::channel::SendError<WebSocketEvent>),
+    #[error("SendWebsocketEventError: {0}")]
+    SendWebsocketEventError(#[from] crossbeam::channel::SendError<WebSocketEvent>),
+    #[error("SendChannelMsgError: {0}")]
+    SendChannelMsgError(#[from] crossbeam::channel::SendError<ChannelMsg>),
     #[error("TimeError: {0}")]
     TimeError(#[from] time_series::time::TimeError),
     #[error("Request payload size is too large")]
     Overflow,
     #[error("Payload error: {0}")]
-    PayloadError(#[from] actix_web::error::PayloadError)
+    PayloadError(#[from] actix_web::error::PayloadError),
+    #[error("Alert missing price")]
+    AlertMissingPrice,
 }
 
 impl ResponseError for DreamrunnerError {

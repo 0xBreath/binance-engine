@@ -9,6 +9,7 @@ pub mod userstream;
 pub mod websocket;
 pub mod trade;
 pub mod interval;
+pub mod alert;
 
 pub use account::*;
 pub use api::*;
@@ -20,3 +21,4 @@ pub use model::*;
 pub use userstream::*;
 pub use websocket::*;
 pub use interval::*;
+pub use alert::*;

@@ -3,6 +3,7 @@
 use std::str::FromStr;
 use actix_web::{Result};
 use serde::{Serialize, Deserialize};
+use crate::WebSocketEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Position {
@@ -36,4 +37,11 @@ pub struct Alert {
   #[serde(default)]
   pub price: Option<f64>,
   pub timestamp: i64
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChannelMsg {
+  Websocket(WebSocketEvent),
+  Alert(Alert)
 }
