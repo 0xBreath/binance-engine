@@ -44,7 +44,7 @@ impl Plot {
       .margin_bottom(20)
       .margin_left(30)
       .margin_right(30)
-      .set_all_label_area_size(120)
+      .set_all_label_area_size(140)
       .caption(
         title,
         ("sans-serif", 40.0).into_font(),

@@ -28,14 +28,17 @@ pub struct Trade {
 #[derive(Debug, Clone, Default)]
 pub struct Backtest {
   pub capital: f64,
+  /// Fee in percentage
+  pub fee: f64,
   pub candles: Vec<Candle>,
   pub trades: Vec<Trade>,
   pub signals: Vec<Signal>
 }
 impl Backtest {
-  pub fn new(capital: f64) -> Self {
+  pub fn new(capital: f64, fee: f64) -> Self {
     Self {
       capital,
+      fee,
       candles: Vec::new(),
       trades: Vec::new(),
       signals: Vec::new()
@@ -84,7 +87,7 @@ impl Backtest {
         };
         self.add_signal(signal);
       }
-      
+
       self.add_candle(candle);
     }
     // only take candles greater than a timestamp
@@ -105,7 +108,7 @@ impl Backtest {
 
     Ok(())
   }
-  
+
   pub async fn add_klines(&mut self, account: &Account, start_time: Option<Time>, end_time: Option<Time>) -> anyhow::Result<()> {
     let days_back = match (start_time, end_time) {
       (Some(start), Some(end)) => {
@@ -119,7 +122,7 @@ impl Backtest {
     println!("days back: {}", days_back);
     let mut klines = account.kline_history(days_back).await?;
     klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
-    
+
     for kline in klines.into_iter() {
       self.add_candle(kline.to_candle());
     }
@@ -138,7 +141,7 @@ impl Backtest {
         (None, None) => true
       }
     });
-    
+
     Ok(())
   }
 
@@ -153,7 +156,7 @@ impl Backtest {
   pub fn add_signal(&mut self, signal: Signal) {
     self.signals.push(signal);
   }
-  
+
   pub fn reset(&mut self) {
     self.trades.clear();
     self.signals.clear();
@@ -165,7 +168,7 @@ impl Backtest {
     }).sum::<f64>() / self.trades.len() as f64;
     Ok(trunc!(avg, 4))
   }
-  
+
   /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
   pub fn backtest_tradingview(&self) -> anyhow::Result<Summary> {
     let capital = self.capital;
@@ -175,7 +178,7 @@ impl Backtest {
     let mut quote_data = Vec::new();
     let mut winners = 0;
     let mut total_trades = 0;
-    
+
     // filter out None signals
     let signals = signals.iter().filter(|s| {
       !matches!(s, Signal::None)
@@ -190,6 +193,8 @@ impl Backtest {
 
           let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
           let quote_pnl = pct_pnl / 100.0 * capital;
+          let fee = self.fee / 100.0;
+          let quote_pnl = quote_pnl - (quote_pnl * fee);
 
           quote += quote_pnl;
 
@@ -197,7 +202,7 @@ impl Backtest {
             winners += 1;
           }
           total_trades += 1;
-          
+
           quote_data.push(Data {
             x: date.to_unix_ms(),
             y: trunc!(quote, 4)
@@ -215,7 +220,7 @@ impl Backtest {
             winners += 1;
           }
           total_trades += 1;
-          
+
           quote_data.push(Data {
             x: date.to_unix_ms(),
             y: trunc!(quote, 4)
@@ -233,7 +238,7 @@ impl Backtest {
       (max, drawdown)
     });
     let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
-    
+
     Ok(Summary {
       roi: trunc!(quote, 4),
       pnl: trunc!(quote / capital * 100.0, 4),
@@ -248,10 +253,10 @@ impl Backtest {
   }
 
   /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn pnl(&mut self) -> anyhow::Result<Summary> {
+  pub fn summary(&mut self) -> anyhow::Result<Summary> {
     let mut capital = self.capital;
     let initial_capital = capital;
-    
+
     let mut quote = 0.0;
     let mut quote_data = Vec::new();
     let mut winners = 0;
@@ -267,8 +272,9 @@ impl Backtest {
         Order::Short => -1.0,
       };
       let pct_pnl = ((exit.get().price - entry.get().price) / entry.get().price * factor) * 100.0;
-      // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
       let quote_pnl = pct_pnl / 100.0 * capital;
+      let fee = self.fee / 100.0;
+      let quote_pnl = quote_pnl - (quote_pnl * fee);
 
       let quantity = capital / entry.get().price;
       let updated_entry = Trade {
@@ -301,10 +307,10 @@ impl Backtest {
       };
       Cell::swap(exit, &Cell::from(updated_exit));
     }
-    
+
     // set self.trades to slice_of_cells
     self.trades = slice_of_cells.iter().map(|cell| cell.get()).collect();
-    
+
     let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
     let avg_pct_pnl = avg_quote_pnl / initial_capital * 100.0;
     let win_rate = (winners as f64 / total_trades as f64) * 100.0;
@@ -314,7 +320,7 @@ impl Backtest {
       (max, drawdown)
     });
     let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
-    
+
     Ok(Summary {
       roi: trunc!(quote, 4),
       pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
@@ -389,16 +395,16 @@ impl Backtest {
   pub fn buy_and_hold(
     &mut self,
   ) -> anyhow::Result<Vec<Data>> {
-    
+
     let start_capital = self.capital;
 
     let candles = self.candles.clone();
     let first = candles.first().unwrap();
     let last = candles.last().unwrap();
-    
+
     let pct_pnl = ((last.close - first.close) / first.close) * 100.0;
     let quote_pnl = pct_pnl / 100.0 * start_capital;
-    
+
     Ok(vec![
       Data {
         x: first.date.to_unix_ms(),
@@ -489,13 +495,14 @@ async fn backtest() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let capital = 1_000.0;
+  let fee = 0.15;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(capital);
+  let mut backtest = Backtest::new(capital, fee);
   backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 
   let k_src = Source::Close;
@@ -503,24 +510,17 @@ async fn backtest() -> anyhow::Result<()> {
   let k_rev = 0.03;
   let wma_period = 4;
 
-  #[derive(Debug, Clone)]
-  struct BacktestResult {
-    pub k_rev: f64,
-    pub wma_period: usize,
-    pub summary: Summary
-  }
-  
   backtest.backtest(
     wma_period,
     k_rev,
     k_src,
     ma_src
   )?;
-  let summary = backtest.pnl()?;
+  let summary = backtest.summary()?;
 
   println!("==== Dreamrunner Backtest ====");
   summary.print();
-  
+
   Plot::plot(
     vec![summary.roi_data, backtest.buy_and_hold()?],
     "dreamrunner_backtest.png",
@@ -539,29 +539,30 @@ async fn optimize() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let capital = 1_000.0;
+  let fee = 0.15;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(capital);
+  let mut backtest = Backtest::new(capital, fee);
   backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-  
+
   let k_src = Source::Close;
   let ma_src = Source::Open;
-  
+
   #[derive(Debug, Clone)]
   struct BacktestResult {
     pub k_rev: f64,
     pub wma_period: usize,
     pub summary: Summary
   }
-  
+
   let mut results = vec![];
   for i in 0..10 {
     let k_rev = trunc!(0.01 + (i as f64 * 0.01), 4);
-    
+
     for j in 0..50 {
       let wma_period = j + 1;
       backtest.backtest(
@@ -570,7 +571,7 @@ async fn optimize() -> anyhow::Result<()> {
         k_src,
         ma_src
       )?;
-      let summary = backtest.pnl()?;
+      let summary = backtest.summary()?;
       results.push(BacktestResult {
         k_rev,
         wma_period,
@@ -586,9 +587,9 @@ async fn optimize() -> anyhow::Result<()> {
   println!("WMA Period: {}", optimized.wma_period);
   println!("Kagi Rev: {}", optimized.k_rev);
   let summary = optimized.summary;
-  
+
   summary.print();
-  
+
   Plot::plot(
     vec![summary.roi_data],
     "optimized_backtest.png",

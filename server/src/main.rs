@@ -164,8 +164,8 @@ async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse
       .pnl(account.ticker.clone()).await?;
     
     Plot::plot(
-        vec![res.quote_data],
-        "quote_pnl.png",
+        vec![res.roi_data],
+        "dreamrunner_roi.png",
         "Quote Pnl",
         QUOTE_ASSET
     )?;
