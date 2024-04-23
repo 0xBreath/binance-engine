@@ -5,7 +5,7 @@ use time_series::{Candle, Signal, Source, trunc, RollingCandles, Kagi};
 pub struct Dreamrunner {
   pub k_rev: f64,
   pub k_src: Source,
-  pub ma_src: Source
+  pub ma_src: Source,
 }
 
 impl Default for Dreamrunner {
@@ -31,9 +31,8 @@ impl Dreamrunner {
     let c_0 = candles.vec[0];
     // old kagi
     let k_1 = *kagi;
-    // new kagi
-    let k_0 = Kagi::update(kagi, self.k_rev, &c_0);
     // update kagi
+    let k_0 = Kagi::update(kagi, self.k_rev, &c_0);
     kagi.line = k_0.line;
     kagi.direction = k_0.direction;
     
@@ -43,14 +42,10 @@ impl Dreamrunner {
     let wma_0 = self.wma(&period_from_curr);
     info!("WMA: {}", trunc!(wma_0, 3));
     let wma_1 = self.wma(&period_from_prev);
-
-    let x = wma_0 > k_0.line;
-    let y = wma_0 < k_0.line;
-    let x_1 = wma_1 > k_1.line;
-    let y_1 = wma_1 < k_1.line;
     
-    let long = x && !x_1;
-    let short = y && !y_1;
+    let long = wma_0 > k_0.line && wma_1 < k_1.line;
+    let short = wma_0 < k_0.line && wma_1 > k_1.line;
+    
     match (long, short) {
       (true, true) => {
         Err(anyhow::anyhow!("Both long and short signals detected"))

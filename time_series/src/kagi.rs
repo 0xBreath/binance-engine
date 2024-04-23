@@ -15,53 +15,42 @@ pub struct Kagi {
 impl Kagi {
   pub fn update(kagi: &Kagi, rev_amt: f64, candle: &Candle) -> Self {
     let mut new_kagi = *kagi;
-
+    
     match kagi.direction {
       KagiDirection::Up => {
-        if candle.close > kagi.line {
-          new_kagi.line = candle.close;
-        }
-        if kagi.line - candle.close >= rev_amt {
-          new_kagi = Kagi {
-            line: candle.close,
-            direction: KagiDirection::Down,
-          };
+        let src = candle.low;
+        let diff = candle.close - kagi.line;
+        
+        if diff.abs() > rev_amt {
+          if diff > 0.0 {
+            new_kagi.line = src;
+          }
+          if diff < 0.0 {
+            new_kagi = Kagi {
+              line: src,
+              direction: KagiDirection::Down,
+            };
+          }
         }
       },
       KagiDirection::Down => {
-        if candle.close < kagi.line {
-          new_kagi.line = candle.close;
-        }
-        if candle.close - kagi.line >= rev_amt {
-          new_kagi = Kagi {
-            line: candle.close,
-            direction: KagiDirection::Up,
-          };
+        let src = candle.high;
+        let diff = candle.close - kagi.line;
+        
+        if diff.abs() > rev_amt {
+          if diff < 0.0 {
+            new_kagi.line = src;
+          }
+          if diff > 0.0 {
+            new_kagi = Kagi {
+              line: src,
+              direction: KagiDirection::Up,
+            };
+          }
         }
       },
-      // KagiDirection::Up => {
-      //   if candle.high > kagi.line {
-      //     new_kagi.line = candle.high;
-      //   }
-      //   if kagi.line - candle.low >= rev_amt {
-      //     new_kagi = Kagi {
-      //       line: candle.low,
-      //       direction: KagiDirection::Down,
-      //     };
-      //   }
-      // },
-      // KagiDirection::Down => {
-      //   if candle.low < kagi.line {
-      //     new_kagi.line = candle.low;
-      //   }
-      //   if candle.high - kagi.line >= rev_amt {
-      //     new_kagi = Kagi {
-      //       line: candle.high,
-      //       direction: KagiDirection::Up,
-      //     };
-      //   }
-      // },
     }
+    
     new_kagi
   }
 }

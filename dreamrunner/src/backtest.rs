@@ -454,6 +454,7 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
   let mut backtest = Backtest::new(capital);
 
   let start_time = Time::new(2023, &Month::from_num(9), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(15), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";

@@ -118,7 +118,7 @@ impl Account {
     pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Pnl> {
         let trades = self.trades(symbol).await?;
         let capital = trades[0].price * trades[0].quantity;
-        
+
         let mut quote = 0.0;
         let mut pct = 0.0;
         let mut pct_data = Vec::new();
@@ -137,15 +137,15 @@ impl Account {
             let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
             // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
             let quote_pnl = pct_pnl / 100.0 * capital;
-            
+
             quote += quote_pnl;
             pct = quote / capital * 100.0;
-            
+
             if quote_pnl > 0.0 {
                 winners += 1;
             }
             total_trades += 1;
-            
+
             pct_data.push(Data {
                 x: entry.event_time,
                 y: trunc!(pct, 4)
@@ -162,11 +162,11 @@ impl Account {
             let drawdown = (drawdown as f64).min(d.y - max);
             (max, drawdown)
         }).1;
-        
+
         let first_trade = Time::from_unix_ms(trades.last().unwrap().event_time).to_string();
         let last_trade = Time::from_unix_ms(trades.first().unwrap().event_time).to_string();
         info!("trade period: {} - {}", first_trade, last_trade);
-        
+
         Ok(Pnl {
             quote: trunc!(quote, 4),
             pct: trunc!(pct, 4),
@@ -330,7 +330,7 @@ impl Account {
         }
         Ok(())
     }
-    
+
     pub async fn klines(&self, limit: Option<u16>, start_time: Option<i64>, end_time: Option<i64>) -> DreamrunnerResult<Vec<Kline>> {
         let req = Klines::request(self.ticker.to_string(), self.interval.as_str(), limit, start_time, end_time);
         let mut klines = self.client
@@ -341,7 +341,7 @@ impl Account {
         klines.sort_by(|a, b| b.open_time.cmp(&a.open_time));
         Ok(klines)
     }
-    
+
     // get historical klines for the specified days back
     pub async fn kline_history(&self, days_back: i64) -> DreamrunnerResult<Vec<Kline>> {
         let end = Time::now();
