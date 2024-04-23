@@ -164,12 +164,6 @@ async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse
       .pnl(account.ticker.clone()).await?;
     
     Plot::plot(
-        vec![res.pct_data],
-        "percent_pnl.png",
-        "Percent Pnl",
-        "% ROI"
-    )?;
-    Plot::plot(
         vec![res.quote_data],
         "quote_pnl.png",
         "Quote Pnl",

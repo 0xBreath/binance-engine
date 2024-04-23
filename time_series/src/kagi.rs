@@ -18,8 +18,13 @@ impl Kagi {
     
     match kagi.direction {
       KagiDirection::Up => {
+        // 260% return in 7+ month
         let src = candle.low;
         let diff = candle.close - kagi.line;
+        
+        // 70% return in 7+ months
+        // let src = candle.close;
+        // let diff = candle.low - kagi.line;
         
         if diff.abs() > rev_amt {
           if diff > 0.0 {
@@ -34,8 +39,13 @@ impl Kagi {
         }
       },
       KagiDirection::Down => {
+        // 260% return in 7+ month
         let src = candle.high;
         let diff = candle.close - kagi.line;
+        
+        // 70% return in 7+ months
+        // let src = candle.close;
+        // let diff = candle.high - kagi.line;
         
         if diff.abs() > rev_amt {
           if diff < 0.0 {

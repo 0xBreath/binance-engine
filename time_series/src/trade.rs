@@ -47,10 +47,10 @@ pub struct Pnl {
   pub win_rate: f64,
   pub total_trades: usize,
   pub avg_quote_trade_size: f64,
+  pub avg_quote_pnl: f64,
   pub avg_pct_pnl: f64,
   pub max_pct_drawdown: f64,
-  pub quote_data: Vec<Data>,
-  pub pct_data: Vec<Data>
+  pub quote_data: Vec<Data>
 }
 impl Pnl {
   pub fn print(&self) {

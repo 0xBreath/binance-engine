@@ -42,10 +42,15 @@ impl Dreamrunner {
     let wma_0 = self.wma(&period_from_curr);
     info!("WMA: {}", trunc!(wma_0, 3));
     let wma_1 = self.wma(&period_from_prev);
+
+    // 260% return in 7+ months
+    // let long = wma_0 > k_0.line && wma_1 < k_1.line;
+    // let short = wma_0 < k_0.line && wma_1 > k_1.line;
     
-    let long = wma_0 > k_0.line && wma_1 < k_1.line;
-    let short = wma_0 < k_0.line && wma_1 > k_1.line;
-    
+    // 350% return in 7+ months
+    let long = wma_0 > k_0.line && wma_0 < k_1.line;
+    let short = wma_0 < k_0.line && wma_0 > k_1.line;
+
     match (long, short) {
       (true, true) => {
         Err(anyhow::anyhow!("Both long and short signals detected"))
@@ -55,19 +60,7 @@ impl Dreamrunner {
       (false, false) => Ok(Signal::None)
     }
   }
-
-  /// pinescript WMA source code:
-  /// ```pinescript
-  /// x = close // Source
-  /// y = 5 // MA Period
-  /// norm = 0.0
-  /// sum = 0.0
-  /// for i = 0 to y - 1
-  ///    weight = (y - i) * y
-  ///    norm := norm + weight
-  ///    sum := sum + x[i] * weight
-  /// sum / norm
-  /// ```
+  
   pub fn wma(&self, candles: &[&Candle]) -> f64 {
     let mut norm = 0.0;
     let mut sum = 0.0;

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![allow(clippy::unnecessary_cast)]
 
+use std::cell::Cell;
 use time_series::{Candle, Data, Kagi, KagiDirection, Pnl, RollingCandles, Signal, Source, Time, trunc};
 use std::fs::File;
 use std::path::PathBuf;
@@ -9,13 +10,13 @@ use lib::{Account};
 use crate::dreamrunner::Dreamrunner;
 
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Order {
   Long,
   Short,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Trade {
   pub date: Time,
   pub side: Order,
@@ -166,8 +167,6 @@ impl Backtest {
     let signals = &self.signals;
 
     let mut quote = 0.0;
-    let mut pct = 0.0;
-    let mut pct_data = Vec::new();
     let mut quote_data = Vec::new();
     let mut winners = 0;
     let mut total_trades = 0;
@@ -185,21 +184,15 @@ impl Backtest {
           let factor = 1.0;
 
           let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
-          // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
           let quote_pnl = pct_pnl / 100.0 * capital;
 
           quote += quote_pnl;
-          pct = quote / capital * 100.0;
 
           if quote_pnl > 0.0 {
             winners += 1;
           }
           total_trades += 1;
-
-          pct_data.push(Data {
-            x: date.to_unix_ms(),
-            y: trunc!(pct, 4)
-          });
+          
           quote_data.push(Data {
             x: date.to_unix_ms(),
             y: trunc!(quote, 4)
@@ -209,21 +202,15 @@ impl Backtest {
           let factor = -1.0;
 
           let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
-          // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
           let quote_pnl = pct_pnl / 100.0 * capital;
 
           quote += quote_pnl;
-          pct = quote / capital * 100.0;
 
           if quote_pnl > 0.0 {
             winners += 1;
           }
           total_trades += 1;
-
-          pct_data.push(Data {
-            x: date.to_unix_ms(),
-            y: trunc!(pct, 4)
-          });
+          
           quote_data.push(Data {
             x: date.to_unix_ms(),
             y: trunc!(quote, 4)
@@ -232,20 +219,23 @@ impl Backtest {
         _ => continue
       }
     }
-    let avg_pct_pnl = pct_data.iter().map(|d| d.y).sum::<f64>() / pct_data.len() as f64;
+    let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
+    let avg_pct_pnl = avg_quote_pnl / capital * 100.0;
     let win_rate = (winners as f64 / total_trades as f64) * 100.0;
-    let max_pct_drawdown = pct_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
+    let (max_quote, quote_drawdown) = quote_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
       let max = (max as f64).max(d.y);
       let drawdown = (drawdown as f64).min(d.y - max);
       (max, drawdown)
-    }).1;
+    });
+    let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
+    
     Ok(Pnl {
       quote: trunc!(quote, 4),
-      pct: trunc!(pct, 4),
-      pct_data,
+      pct: trunc!(quote / capital * 100.0, 4),
       win_rate: trunc!(win_rate, 4),
       total_trades,
       avg_quote_trade_size: self.avg_quote_trade_size()?,
+      avg_quote_pnl: 0.0,
       avg_pct_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
       quote_data,
@@ -253,59 +243,81 @@ impl Backtest {
   }
 
   /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn pnl(&self) -> anyhow::Result<Pnl> {
+  pub fn pnl(&mut self) -> anyhow::Result<Pnl> {
     let trades = &self.trades;
-    let capital = self.capital;
+    let mut capital = self.capital;
+    let initial_capital = capital;
     
     let mut quote = 0.0;
-    let mut pct = 0.0;
-    let mut pct_data = Vec::new();
     let mut quote_data = Vec::new();
     let mut winners = 0;
     let mut total_trades = 0;
-    
-    for trades in trades.windows(2) {
+
+    let slice = &mut self.trades.clone()[..];
+    let slice_of_cells: &[Cell<Trade>] = Cell::from_mut(slice).as_slice_of_cells();
+    for trades in slice_of_cells.windows(2) {
       let exit = &trades[1];
       let entry = &trades[0];
-      let factor = match entry.side {
+      let factor = match entry.get().side {
         Order::Long => 1.0,
         Order::Short => -1.0,
       };
-      let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
+      let pct_pnl = ((exit.get().price - entry.get().price) / entry.get().price * factor) * 100.0;
       // let quote_pnl = pct_pnl / 100.0 * entry.quantity * entry.price;
       let quote_pnl = pct_pnl / 100.0 * capital;
 
+      let quantity = capital / entry.get().price;
+      let updated_entry = Trade {
+        date: entry.get().date,
+        side: entry.get().side,
+        quantity,
+        price: entry.get().price
+      };
+      Cell::swap(entry, &Cell::from(updated_entry));
+
+      capital += quote_pnl;
       quote += quote_pnl;
-      pct = quote / capital * 100.0;
-      
+
       if quote_pnl > 0.0 {
         winners += 1;
       }
       total_trades += 1;
 
-      pct_data.push(Data {
-        x: entry.date.to_unix_ms(),
-        y: trunc!(pct, 4)
-      });
       quote_data.push(Data {
-        x: entry.date.to_unix_ms(),
+        x: entry.get().date.to_unix_ms(),
         y: trunc!(quote, 4)
       });
+
+      let quantity = capital / exit.get().price;
+      let updated_exit = Trade {
+        date: exit.get().date,
+        side: exit.get().side,
+        quantity,
+        price: exit.get().price
+      };
+      Cell::swap(exit, &Cell::from(updated_exit));
     }
-    let avg_pct_pnl = pct_data.iter().map(|d| d.y).sum::<f64>() / pct_data.len() as f64;
+    
+    // set self.trades to slice_of_cells
+    self.trades = slice_of_cells.iter().map(|cell| cell.get()).collect();
+    
+    let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
+    let avg_pct_pnl = avg_quote_pnl / initial_capital * 100.0;
     let win_rate = (winners as f64 / total_trades as f64) * 100.0;
-    let max_pct_drawdown = pct_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
+    let (max_quote, quote_drawdown) = quote_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
       let max = (max as f64).max(d.y);
       let drawdown = (drawdown as f64).min(d.y - max);
       (max, drawdown)
-    }).1;
+    });
+    let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
+    
     Ok(Pnl {
       quote: trunc!(quote, 4),
-      pct: trunc!(pct, 4),
-      pct_data,
+      pct: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
       win_rate: trunc!(win_rate, 4),
       total_trades,
       avg_quote_trade_size: self.avg_quote_trade_size()?,
+      avg_quote_pnl: trunc!(avg_quote_pnl, 4),
       avg_pct_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
       quote_data,
@@ -413,7 +425,7 @@ impl Backtest {
             quantity,
             price,
           };
-          active_trade = Some(trade.clone());
+          active_trade = Some(trade);
           self.add_trade(trade);
         },
         Signal::Short((price, time)) => {
@@ -429,7 +441,7 @@ impl Backtest {
               quantity,
               price,
             };
-            active_trade = Some(trade.clone());
+            active_trade = Some(trade);
             self.add_trade(trade);
           }
         },
@@ -454,8 +466,8 @@ async fn backtest_dreamrunner() -> anyhow::Result<()> {
   let mut backtest = Backtest::new(capital);
 
   let start_time = Time::new(2023, &Month::from_num(9), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(15), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+  // let end_time = Time::new(2023, &Month::from_num(12), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
