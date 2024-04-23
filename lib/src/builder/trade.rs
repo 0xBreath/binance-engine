@@ -23,6 +23,10 @@ pub struct BinanceTrade {
     pub recv_window: u32,
     /// UNIX timestamp in milliseconds when order was created
     pub timestamp: i64,
+    /// Stop loss trigger price
+    pub stop_price: Option<f64>,
+    /// Trailing stop
+    pub trailing_delta: Option<u32>,
 }
 
 impl BinanceTrade {
@@ -36,6 +40,8 @@ impl BinanceTrade {
         price: Option<f64>,
         recv_window: Option<u32>,
         timestamp: i64,
+        stop_price: Option<f64>,
+        trailing_delta: Option<u32>,
     ) -> Self {
         let recv_window = recv_window.unwrap_or(10000);
         Self {
@@ -46,7 +52,9 @@ impl BinanceTrade {
             client_order_id,
             price,
             recv_window,
-            timestamp
+            timestamp,
+            stop_price,
+            trailing_delta
         }
     }
 
@@ -75,6 +83,12 @@ impl BinanceTrade {
         btree.push(("quantity".to_string(), self.quantity.to_string()));
         if let Some(price) = self.price {
             btree.push(("price".to_string(), price.to_string()));
+        }
+        if let Some(trailing_delta) = self.trailing_delta {
+            btree.push(("trailingDelta".to_string(), trailing_delta.to_string()));
+        }
+        if let Some(stop_loss) = self.stop_price {
+            btree.push(("stopPrice".to_string(), stop_loss.to_string()));
         }
         let timestamp = Self::get_timestamp().expect("Failed to get timestamp");
         btree.push(("timestamp".to_string(), timestamp.to_string()));

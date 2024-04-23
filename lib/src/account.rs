@@ -292,7 +292,9 @@ impl Account {
                 long_qty,
                 Some(price),
                 None,
-                Time::now().to_unix_ms()
+                Time::now().to_unix_ms(),
+                None,
+                None
             );
             if let Err(e) = self.trade::<LimitOrderResponse>(buy_base).await {
                 error!("🛑 Error equalizing quote asset with error: {:?}", e);
@@ -317,7 +319,9 @@ impl Account {
                 short_qty,
                 Some(price),
                 None,
-                Time::now().to_unix_ms()
+                Time::now().to_unix_ms(),
+                None,
+                None
             );
             if let Err(e) = self.trade::<LimitOrderResponse>(sell_base).await {
                 error!("🛑 Error equalizing base asset with error: {:?}", e);

@@ -83,7 +83,6 @@ async fn main() -> DreamrunnerResult<()> {
         if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
           error!("🛑 Error on user stream keep alive: {}", e);
         }
-        info!("keep alive took: {}s", now.elapsed().unwrap().as_secs());
         last_ping = now;
         has_pinged = true;
       }

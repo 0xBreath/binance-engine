@@ -97,18 +97,15 @@ impl Engine {
           );
         }
         WebSocketEvent::OrderTrade(event) => {
-          let order_type = ActiveOrder::client_order_id_suffix(&event.new_client_order_id);
           let entry_price = trunc!(event.price.parse::<f64>()?, 2);
           info!(
-            "{},  {},  {} @ {},  Execution: {},  Status: {},  Order: {}",
-            event.symbol,
-            event.new_client_order_id,
-            event.side,
-            entry_price,
-            event.execution_type,
-            event.order_status,
-            order_type
-          );
+                "{},  {},  {} @ {}, {}",
+                event.symbol,
+                event.new_client_order_id,
+                event.side,
+                entry_price,
+                event.order_status,
+              );
           // update state
           self.update_active_order(event)?;
           // create or cancel orders depending on state
@@ -183,7 +180,9 @@ impl Engine {
       long_qty,
       Some(limit),
       None,
-      Time::now().to_unix_ms()
+      Time::now().to_unix_ms(),
+      None,
+      None
     );
     Ok(OrderBuilder {
       entry,
@@ -202,7 +201,9 @@ impl Engine {
       short_qty,
       Some(limit),
       None,
-      Time::now().to_unix_ms()
+      Time::now().to_unix_ms(),
+      None,
+      None
     );
     Ok(OrderBuilder {
       entry,
@@ -474,7 +475,9 @@ impl Engine {
         long_qty,
         Some(price),
         None,
-        Time::now().to_unix_ms()
+        Time::now().to_unix_ms(),
+        None,
+        None
       );
       if let Err(e) = self.trade::<LimitOrderResponse>(buy_base).await {
         error!("🛑 Error equalizing quote asset with error: {:?}", e);
@@ -499,7 +502,9 @@ impl Engine {
         short_qty,
         Some(price),
         None,
-        Time::now().to_unix_ms()
+        Time::now().to_unix_ms(),
+        None,
+        None
       );
       if let Err(e) = self.trade::<LimitOrderResponse>(sell_base).await {
         error!("🛑 Error equalizing base asset with error: {:?}", e);

@@ -201,7 +201,7 @@ impl<'a> WebSockets<'a> {
                         debug!("recv ping");
                         match socket.0.send(Message::Pong(msg)) {
                             Ok(_) => {
-                                info!("send pong");
+                                debug!("send pong");
                             }
                             Err(e) => {
                                 error!("Failed to reply with pong: {:#?}", e);
