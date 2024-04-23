@@ -13,7 +13,7 @@ pub struct Plot;
 
 impl Plot {
   pub fn plot(series: Vec<Vec<Data>>, out_file: &str, title: &str, y_label: &str) -> anyhow::Result<()> {
-    
+
     let all: Vec<&Data> = series.iter().flatten().collect();
 
     let mut min_x = i64::MAX;
@@ -34,7 +34,7 @@ impl Plot {
         max_y = datum.y;
       }
     }
-    
+
     let root = BitMapBackend::new(out_file, (2048, 1024)).into_drawing_area();
     root.fill(&WHITE).map_err(
       |e| anyhow::anyhow!("Failed to fill drawing area with white: {}", e)
@@ -61,7 +61,7 @@ impl Plot {
       .draw().map_err(
       |e| anyhow::anyhow!("Failed to draw mesh: {}", e)
     )?;
-    
+
     for data in series {
       let color = Self::random_color();
       chart.draw_series(

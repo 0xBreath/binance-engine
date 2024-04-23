@@ -2,7 +2,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::cell::Cell;
-use time_series::{Candle, Data, Kagi, KagiDirection, Pnl, RollingCandles, Signal, Source, Time, trunc};
+use time_series::{Candle, Data, Kagi, KagiDirection, RollingCandles, Signal, Source, Summary, Time, trunc};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -153,6 +153,11 @@ impl Backtest {
   pub fn add_signal(&mut self, signal: Signal) {
     self.signals.push(signal);
   }
+  
+  pub fn reset(&mut self) {
+    self.trades.clear();
+    self.signals.clear();
+  }
 
   pub fn avg_quote_trade_size(&self) -> anyhow::Result<f64> {
     let avg = self.trades.iter().map(|t| {
@@ -162,7 +167,7 @@ impl Backtest {
   }
   
   /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn simulate_tradingview(&self) -> anyhow::Result<Pnl> {
+  pub fn backtest_tradingview(&self) -> anyhow::Result<Summary> {
     let capital = self.capital;
     let signals = &self.signals;
 
@@ -229,22 +234,21 @@ impl Backtest {
     });
     let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
     
-    Ok(Pnl {
-      quote: trunc!(quote, 4),
-      pct: trunc!(quote / capital * 100.0, 4),
+    Ok(Summary {
+      roi: trunc!(quote, 4),
+      pnl: trunc!(quote / capital * 100.0, 4),
       win_rate: trunc!(win_rate, 4),
       total_trades,
-      avg_quote_trade_size: self.avg_quote_trade_size()?,
-      avg_quote_pnl: 0.0,
-      avg_pct_pnl: trunc!(avg_pct_pnl, 4),
+      avg_trade_size: self.avg_quote_trade_size()?,
+      avg_trade_roi: trunc!(avg_quote_pnl, 4),
+      avg_trade_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      quote_data,
+      roi_data: quote_data
     })
   }
 
   /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn pnl(&mut self) -> anyhow::Result<Pnl> {
-    let trades = &self.trades;
+  pub fn pnl(&mut self) -> anyhow::Result<Summary> {
     let mut capital = self.capital;
     let initial_capital = capital;
     
@@ -311,16 +315,16 @@ impl Backtest {
     });
     let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
     
-    Ok(Pnl {
-      quote: trunc!(quote, 4),
-      pct: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
+    Ok(Summary {
+      roi: trunc!(quote, 4),
+      pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
       win_rate: trunc!(win_rate, 4),
       total_trades,
-      avg_quote_trade_size: self.avg_quote_trade_size()?,
-      avg_quote_pnl: trunc!(avg_quote_pnl, 4),
-      avg_pct_pnl: trunc!(avg_pct_pnl, 4),
+      avg_trade_size: self.avg_quote_trade_size()?,
+      avg_trade_roi: trunc!(avg_quote_pnl, 4),
+      avg_trade_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      quote_data,
+      roi_data: quote_data
     })
   }
 
@@ -382,7 +386,32 @@ impl Backtest {
     Ok(data)
   }
 
-  pub fn simulate(
+  pub fn buy_and_hold(
+    &mut self,
+  ) -> anyhow::Result<Vec<Data>> {
+    
+    let start_capital = self.capital;
+
+    let candles = self.candles.clone();
+    let first = candles.first().unwrap();
+    let last = candles.last().unwrap();
+    
+    let pct_pnl = ((last.close - first.close) / first.close) * 100.0;
+    let quote_pnl = pct_pnl / 100.0 * start_capital;
+    
+    Ok(vec![
+      Data {
+        x: first.date.to_unix_ms(),
+        y: 0.0
+      },
+      Data {
+        x: last.date.to_unix_ms(),
+        y: quote_pnl
+      }
+    ])
+  }
+
+  pub fn backtest(
     &mut self,
     wma_period: usize,
     k_rev: f64,
@@ -453,69 +482,117 @@ impl Backtest {
   }
 }
 
-
-
-
 #[tokio::test]
-async fn backtest_dreamrunner() -> anyhow::Result<()> {
+async fn backtest() -> anyhow::Result<()> {
   use super::*;
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
 
   let capital = 1_000.0;
-  let mut backtest = Backtest::new(capital);
 
-  let start_time = Time::new(2023, &Month::from_num(9), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
-  // let end_time = Time::new(2023, &Month::from_num(12), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
+  let mut backtest = Backtest::new(capital);
   backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 
-  let earliest = backtest.candles.first().unwrap().date;
-  let latest = backtest.candles.last().unwrap().date;
-  println!("kline history: {} - {}", earliest.to_string(), latest.to_string());
-  
-
-  let k_rev = 0.001;
   let k_src = Source::Close;
   let ma_src = Source::Open;
-  let wma_period = 5;
+  let k_rev = 0.03;
+  let wma_period = 4;
 
-  backtest.simulate(
+  #[derive(Debug, Clone)]
+  struct BacktestResult {
+    pub k_rev: f64,
+    pub wma_period: usize,
+    pub summary: Summary
+  }
+  
+  backtest.backtest(
     wma_period,
     k_rev,
     k_src,
     ma_src
   )?;
   let summary = backtest.pnl()?;
+
   println!("==== Dreamrunner Backtest ====");
   summary.print();
   
   Plot::plot(
-    vec![summary.quote_data],
+    vec![summary.roi_data, backtest.buy_and_hold()?],
     "dreamrunner_backtest.png",
     "Dreamrunner Backtest",
     "Equity"
   )?;
 
-  let wmas = backtest.wmas(wma_period, k_rev, k_src, ma_src)?;
-  let kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
-  Plot::plot(
-    vec![wmas, kagis],
-    "strategy.png",
-    "Strategy",
-    "USDT Price"
-  )?;
+  Ok(())
+}
+
+
+#[tokio::test]
+async fn optimize() -> anyhow::Result<()> {
+  use super::*;
+  use time_series::{Day, Month, Plot};
+  dotenv::dotenv().ok();
+
+  let capital = 1_000.0;
+
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+
+  let out_file = "solusdt_30m.csv";
+  let csv = PathBuf::from(out_file);
+  let mut backtest = Backtest::new(capital);
+  backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
   
-  let tradingview_backtest = backtest.simulate_tradingview()?;
-  println!("==== Tradingview Backtest ====");
-  tradingview_backtest.print();
+  let k_src = Source::Close;
+  let ma_src = Source::Open;
+  
+  #[derive(Debug, Clone)]
+  struct BacktestResult {
+    pub k_rev: f64,
+    pub wma_period: usize,
+    pub summary: Summary
+  }
+  
+  let mut results = vec![];
+  for i in 0..10 {
+    let k_rev = trunc!(0.01 + (i as f64 * 0.01), 4);
+    
+    for j in 0..50 {
+      let wma_period = j + 1;
+      backtest.backtest(
+        wma_period,
+        k_rev,
+        k_src,
+        ma_src
+      )?;
+      let summary = backtest.pnl()?;
+      results.push(BacktestResult {
+        k_rev,
+        wma_period,
+        summary
+      });
+      backtest.reset();
+    }
+  }
+  // sort for highest percent ROI first
+  results.sort_by(|a, b| b.summary.pnl.partial_cmp(&a.summary.pnl).unwrap());
+  let optimized = results.first().unwrap().clone();
+  println!("==== Optimized Backtest ====");
+  println!("WMA Period: {}", optimized.wma_period);
+  println!("Kagi Rev: {}", optimized.k_rev);
+  let summary = optimized.summary;
+  
+  summary.print();
+  
   Plot::plot(
-    vec![tradingview_backtest.quote_data],
-    "tradingview_backtest.png",
-    "Tradingview Backtest",
+    vec![summary.roi_data],
+    "optimized_backtest.png",
+    "Dreamrunner Backtest",
     "Equity"
   )?;
 

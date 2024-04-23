@@ -12,7 +12,7 @@ linreg = "0.2.0"
 log = { workspace = true }
 num-decimal = { version = "0.2.4", default-features = false, features = ["num-v04", "serde"] }
 plotters = { workspace = true }
-rayon = "1.5.1"
+rayon = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

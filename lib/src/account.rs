@@ -2,7 +2,7 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{Data, Pnl, Time, trunc};
+use time_series::{Data, Summary, Time, trunc};
 use crate::builder::Klines;
 use crate::trade::TradeInfo;
 
@@ -115,7 +115,7 @@ impl Account {
         Ok(trades)
     }
 
-    pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Pnl> {
+    pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Summary> {
         let trades = self.trades(symbol).await?;
         let initial_capital = trades[0].price * trades[0].quantity;
         let mut capital = initial_capital;
@@ -163,16 +163,16 @@ impl Account {
         let last_trade = Time::from_unix_ms(trades.first().unwrap().event_time).to_string();
         info!("trade period: {} - {}", first_trade, last_trade);
 
-        Ok(Pnl {
-            quote: trunc!(quote, 4),
-            pct: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
+        Ok(Summary {
+            roi: trunc!(quote, 4),
+            pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
             win_rate: trunc!(win_rate, 4),
             total_trades,
-            avg_quote_trade_size: self.avg_quote_trade_size(self.ticker.clone()).await?,
-            avg_quote_pnl: trunc!(avg_quote_pnl, 4),
-            avg_pct_pnl: trunc!(avg_pct_pnl, 4),
+            avg_trade_size: self.avg_quote_trade_size(self.ticker.clone()).await?,
+            avg_trade_roi: trunc!(avg_quote_pnl, 4),
+            avg_trade_pnl: trunc!(avg_pct_pnl, 4),
             max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-            quote_data,
+            roi_data: quote_data
         })
     }
 

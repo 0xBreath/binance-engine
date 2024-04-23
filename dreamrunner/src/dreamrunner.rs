@@ -11,7 +11,7 @@ pub struct Dreamrunner {
 impl Default for Dreamrunner {
   fn default() -> Self {
     Self {
-      k_rev: 0.001,
+      k_rev: 0.03,
       k_src: Source::Close,
       ma_src: Source::Open
     }
@@ -42,12 +42,7 @@ impl Dreamrunner {
     let wma_0 = self.wma(&period_from_curr);
     info!("WMA: {}", trunc!(wma_0, 3));
     let wma_1 = self.wma(&period_from_prev);
-
-    // 260% return in 7+ months
-    // let long = wma_0 > k_0.line && wma_1 < k_1.line;
-    // let short = wma_0 < k_0.line && wma_1 > k_1.line;
     
-    // 350% return in 7+ months
     let long = wma_0 > k_0.line && wma_0 < k_1.line;
     let short = wma_0 < k_0.line && wma_0 > k_1.line;
 
