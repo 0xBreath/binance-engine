@@ -9,6 +9,13 @@ use std::str::FromStr;
 use lib::{Account};
 use crate::dreamrunner::Dreamrunner;
 
+pub struct CsvSeries {
+  pub candles: Vec<Candle>,
+  pub signals: Vec<Signal>,
+  pub kagis: Vec<Data>,
+  pub wmas: Vec<Data>
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Order {
@@ -54,7 +61,7 @@ impl Backtest {
     csv_path: &PathBuf,
     start_time: Option<Time>,
     end_time: Option<Time>
-  ) -> anyhow::Result<(Vec<Candle>, Vec<Signal>)> {
+  ) -> anyhow::Result<CsvSeries> {
     let file_buffer = File::open(csv_path)?;
     let mut csv = csv::Reader::from_reader(file_buffer);
 
@@ -67,6 +74,9 @@ impl Backtest {
 
     let mut signals = Vec::new();
     let mut candles = Vec::new();
+    let mut kagis = Vec::new();
+    let mut wmas = Vec::new();
+    
     for record in csv.records().flatten() {
       let date = Time::from_unix(
         record[0]
@@ -82,7 +92,9 @@ impl Backtest {
         close: f64::from_str(&record[4])?,
         volume,
       };
-      // if long and short signals from tradingview backtest are present,
+      candles.push(candle);
+      
+      // if long and short signals from tradingview dreamrunner script are present,
       // it assumes they immediately follow the candle as the 5th and 6th indices
       if let (Ok(long), Ok(short)) = (u8::from_str(&record[5]), u8::from_str(&record[6])) {
         let long: bool = long == 1;
@@ -94,8 +106,19 @@ impl Backtest {
         };
         signals.push(signal);
       }
-
-      candles.push(candle);
+      
+      // if Kagi and WMA plots from tradingview dreamrunner script are present,
+      // it assumes they immediately follow the long/short signals as the 7th and 8th indices
+      if let (Ok(kagi), Ok(wma)) = (f64::from_str(&record[7]), f64::from_str(&record[8])) {
+        kagis.push(Data {
+          x: date.to_unix_ms(),
+          y: trunc!(kagi, 3)
+        });
+        wmas.push(Data {
+          x: date.to_unix_ms(),
+          y: trunc!(wma, 3)
+        })
+      }
     }
     // only take candles greater than a timestamp
     candles.retain(|candle| {
@@ -112,8 +135,41 @@ impl Backtest {
         (None, None) => true
       }
     });
+    kagis.retain(|kagi| {
+      match (start_time, end_time) {
+        (Some(start), Some(end)) => {
+          kagi.x > start.to_unix_ms() && kagi.x < end.to_unix_ms()
+        },
+        (Some(start), None) => {
+          kagi.x > start.to_unix_ms()
+        },
+        (None, Some(end)) => {
+          kagi.x < end.to_unix_ms()
+        },
+        (None, None) => true
+      }
+    });
+    wmas.retain(|wma| {
+      match (start_time, end_time) {
+        (Some(start), Some(end)) => {
+          wma.x > start.to_unix_ms() && wma.x < end.to_unix_ms()
+        },
+        (Some(start), None) => {
+          wma.x > start.to_unix_ms()
+        },
+        (None, Some(end)) => {
+          wma.x < end.to_unix_ms()
+        },
+        (None, None) => true
+      }
+    });
 
-    Ok((candles, signals))
+    Ok(CsvSeries {
+      candles,
+      signals,
+      kagis,
+      wmas
+    })
   }
 
   pub async fn add_klines(
@@ -510,15 +566,16 @@ async fn sol_backtest() -> anyhow::Result<()> {
   let capital = 1_000.0;
   let fee = 0.15;
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(23), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(capital, fee);
-  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-  backtest.candles = candles;
-  backtest.signals = signals;
+  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = csv_series.candles;
+  backtest.signals = csv_series.signals;
 
   let k_src = Source::Close;
   let ma_src = Source::Open;
@@ -543,6 +600,15 @@ async fn sol_backtest() -> anyhow::Result<()> {
     "Equity"
   )?;
 
+  let rust_kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
+  let pine_kagis = csv_series.kagis;
+  Plot::plot(
+    vec![rust_kagis, pine_kagis],
+    "kagi_comparison.png",
+    "Kagi Comparison",
+    "Price"
+  )?;
+
   Ok(())
 }
 
@@ -561,9 +627,9 @@ async fn eth_backtest() -> anyhow::Result<()> {
   let out_file = "ethusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(capital, fee);
-  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-  backtest.candles = candles;
-  backtest.signals = signals;
+  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = csv_series.candles;
+  backtest.signals = csv_series.signals;
 
   let k_src = Source::Close;
   let ma_src = Source::Open;
@@ -608,14 +674,14 @@ async fn btc_backtest() -> anyhow::Result<()> {
   let out_file = "btcusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(capital, fee);
-  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-  backtest.candles = candles;
-  backtest.signals = signals;
+  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = csv_series.candles;
+  backtest.signals = csv_series.signals;
 
   let k_src = Source::Close;
   let ma_src = Source::Open;
-  let k_rev = 58.0;
-  let wma_period = 8;
+  let k_rev = 58.0; // 1955.0
+  let wma_period = 8; // 15
 
   backtest.backtest(
     wma_period,
@@ -650,15 +716,15 @@ async fn optimize() -> anyhow::Result<()> {
   // let k_rev_step = 0.01;
   // let out_file = "solusdt_30m_optimal_backtest.png";
 
-  let time_series = "ethusdt_30m.csv";
-  let k_rev_start = 0.1;
-  let k_rev_step = 0.1;
-  let out_file = "ethusdt_30m_optimal_backtest.png";
+  // let time_series = "ethusdt_30m.csv";
+  // let k_rev_start = 0.1;
+  // let k_rev_step = 0.1;
+  // let out_file = "ethusdt_30m_optimal_backtest.png";
 
-  // let time_series = "btcusdt_30m.csv";
-  // let k_rev_start = 1.0;
-  // let k_rev_step = 1.0;
-  // let out_file = "btcusdt_30m_optimal_backtest.png";
+  let time_series = "btcusdt_30m.csv";
+  let k_rev_start = 1.0;
+  let k_rev_step = 1.0;
+  let out_file = "btcusdt_30m_optimal_backtest.png";
 
   let capital = 1_000.0;
   let fee = 0.15;
@@ -668,7 +734,7 @@ async fn optimize() -> anyhow::Result<()> {
 
   let csv = PathBuf::from(time_series);
   let mut backtest = Backtest::new(capital, fee);
-  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 
   let k_src = Source::Close;
   let ma_src = Source::Open;
@@ -686,8 +752,8 @@ async fn optimize() -> anyhow::Result<()> {
     let results: Vec<BacktestResult> = (0..15).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
       let wma_period = j + 1;
       let mut backtest = Backtest::new(capital, fee);
-      backtest.candles = candles.clone();
-      backtest.signals = signals.clone();
+      backtest.candles = csv_series.candles.clone();
+      backtest.signals = csv_series.signals.clone();
       backtest.backtest(
         wma_period,
         k_rev,

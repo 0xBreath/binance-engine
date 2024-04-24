@@ -28,10 +28,11 @@ impl Dreamrunner {
       warn!("Insufficient candles to generate WMA");
       return Ok(Signal::None);
     }
+    // current candle
     let c_0 = candles.vec[0];
-    // old kagi
+    // kagi for previous candle
     let k_1 = *kagi;
-    // update kagi
+    // kagi for current candle
     let k_0 = Kagi::update(kagi, self.k_rev, &c_0);
     kagi.line = k_0.line;
     kagi.direction = k_0.direction;
@@ -39,12 +40,16 @@ impl Dreamrunner {
     info!("{:#?}", k_0);
     let period_from_curr: Vec<&Candle> = candles.vec.range(0..candles.vec.len() - 1).collect();
     let period_from_prev: Vec<&Candle> = candles.vec.range(1..candles.vec.len()).collect();
+    // weighted moving average for previous candle
+    let wma_1 = self.wma(&period_from_prev);
+    // weighted moving average for current candle
     let wma_0 = self.wma(&period_from_curr);
     info!("WMA: {}", trunc!(wma_0, 3));
-    let wma_1 = self.wma(&period_from_prev);
     
-    let long = wma_0 > k_0.line && wma_0 < k_1.line;
-    let short = wma_0 < k_0.line && wma_0 > k_1.line;
+    // long if WMA crosses above Kagi and was below Kagi in previous candle
+    let long = wma_0 > k_0.line && wma_1 < k_1.line;
+    // short if WMA crosses below Kagi and was above Kagi in previous candle
+    let short = wma_0 < k_0.line && wma_1 > k_1.line;
 
     match (long, short) {
       (true, true) => {
