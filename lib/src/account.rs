@@ -117,7 +117,8 @@ impl Account {
 
     pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Summary> {
         let trades = self.trades(symbol).await?;
-        let initial_capital = trades[0].price * trades[0].quantity;
+        // let initial_capital = trades[0].price * trades[0].quantity;
+        let initial_capital = 1_000.0;
         let mut capital = initial_capital;
 
         let mut quote = 0.0;
@@ -131,8 +132,6 @@ impl Account {
                 Side::Long => 1.0,
                 Side::Short => -1.0,
             };
-            // (100 - 80) / 80 = 0.25  =>  0.25 * 100 = 25%
-            // (80 - 100) / 100 = -0.20  =>  -0.20 * 100 = -20%
             let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
             let quote_pnl = pct_pnl / 100.0 * capital;
 

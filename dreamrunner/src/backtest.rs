@@ -49,7 +49,12 @@ impl Backtest {
   /// Handles duplicate candles and sorts candles by date.
   /// Expects date of candle to be in UNIX timestamp format.
   /// CSV format: date,open,high,low,close,volume
-  pub fn add_csv_series(&mut self, csv_path: &PathBuf, start_time: Option<Time>, end_time: Option<Time>) -> anyhow::Result<()> {
+  pub fn add_csv_series(
+    &mut self,
+    csv_path: &PathBuf,
+    start_time: Option<Time>,
+    end_time: Option<Time>
+  ) -> anyhow::Result<(Vec<Candle>, Vec<Signal>)> {
     let file_buffer = File::open(csv_path)?;
     let mut csv = csv::Reader::from_reader(file_buffer);
 
@@ -60,6 +65,8 @@ impl Backtest {
       }
     }
 
+    let mut signals = Vec::new();
+    let mut candles = Vec::new();
     for record in csv.records().flatten() {
       let date = Time::from_unix(
         record[0]
@@ -85,13 +92,13 @@ impl Backtest {
           (false, true) => Signal::Short((candle.close, candle.date)),
           _ => Signal::None
         };
-        self.add_signal(signal);
+        signals.push(signal);
       }
 
-      self.add_candle(candle);
+      candles.push(candle);
     }
     // only take candles greater than a timestamp
-    self.candles.retain(|candle| {
+    candles.retain(|candle| {
       match (start_time, end_time) {
         (Some(start), Some(end)) => {
           candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
@@ -106,10 +113,15 @@ impl Backtest {
       }
     });
 
-    Ok(())
+    Ok((candles, signals))
   }
 
-  pub async fn add_klines(&mut self, account: &Account, start_time: Option<Time>, end_time: Option<Time>) -> anyhow::Result<()> {
+  pub async fn add_klines(
+    &mut self,
+    account: &Account,
+    start_time: Option<Time>,
+    end_time: Option<Time>
+  ) -> anyhow::Result<Vec<Candle>> {
     let days_back = match (start_time, end_time) {
       (Some(start), Some(end)) => {
         start.diff_days(&end)?
@@ -123,11 +135,12 @@ impl Backtest {
     let mut klines = account.kline_history(days_back).await?;
     klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
 
+    let mut candles = Vec::new();
     for kline in klines.into_iter() {
-      self.add_candle(kline.to_candle());
+      candles.push(kline.to_candle());
     }
     // only take candles greater than a timestamp
-    self.candles.retain(|candle| {
+    candles.retain(|candle| {
       match (start_time, end_time) {
         (Some(start), Some(end)) => {
           candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
@@ -142,7 +155,7 @@ impl Backtest {
       }
     });
 
-    Ok(())
+    Ok(candles)
   }
 
   pub fn add_candle(&mut self, candle: Candle) {
@@ -489,7 +502,7 @@ impl Backtest {
 }
 
 #[tokio::test]
-async fn backtest() -> anyhow::Result<()> {
+async fn sol_backtest() -> anyhow::Result<()> {
   use super::*;
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
@@ -498,12 +511,14 @@ async fn backtest() -> anyhow::Result<()> {
   let fee = 0.15;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(capital, fee);
-  backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = candles;
+  backtest.signals = signals;
 
   let k_src = Source::Close;
   let ma_src = Source::Open;
@@ -523,17 +538,16 @@ async fn backtest() -> anyhow::Result<()> {
 
   Plot::plot(
     vec![summary.roi_data, backtest.buy_and_hold()?],
-    "dreamrunner_backtest.png",
-    "Dreamrunner Backtest",
+    "solusdt_30m_backtest.png",
+    "SOL/USDT Dreamrunner Backtest",
     "Equity"
   )?;
 
   Ok(())
 }
 
-
 #[tokio::test]
-async fn optimize() -> anyhow::Result<()> {
+async fn eth_backtest() -> anyhow::Result<()> {
   use super::*;
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
@@ -542,12 +556,119 @@ async fn optimize() -> anyhow::Result<()> {
   let fee = 0.15;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
 
-  let out_file = "solusdt_30m.csv";
+  let out_file = "ethusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(capital, fee);
-  backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = candles;
+  backtest.signals = signals;
+
+  let k_src = Source::Close;
+  let ma_src = Source::Open;
+  // let k_rev = 10.0;
+  // let wma_period = 4;
+  let k_rev = 58.4;
+  let wma_period = 14;
+
+  backtest.backtest(
+    wma_period,
+    k_rev,
+    k_src,
+    ma_src
+  )?;
+  let summary = backtest.summary()?;
+
+  println!("==== Dreamrunner Backtest ====");
+  summary.print();
+
+  Plot::plot(
+    vec![summary.roi_data, backtest.buy_and_hold()?],
+    "ethusdt_30m_backtest.png",
+    "ETH/USDT Dreamrunner Backtest",
+    "Equity"
+  )?;
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_backtest() -> anyhow::Result<()> {
+  use super::*;
+  use time_series::{Day, Month, Plot};
+  dotenv::dotenv().ok();
+
+  let capital = 1_000.0;
+  let fee = 0.15;
+
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
+
+  let out_file = "btcusdt_30m.csv";
+  let csv = PathBuf::from(out_file);
+  let mut backtest = Backtest::new(capital, fee);
+  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = candles;
+  backtest.signals = signals;
+
+  let k_src = Source::Close;
+  let ma_src = Source::Open;
+  let k_rev = 58.0;
+  let wma_period = 8;
+
+  backtest.backtest(
+    wma_period,
+    k_rev,
+    k_src,
+    ma_src
+  )?;
+  let summary = backtest.summary()?;
+
+  println!("==== Dreamrunner Backtest ====");
+  summary.print();
+
+  Plot::plot(
+    vec![summary.roi_data, backtest.buy_and_hold()?],
+    "btcusdt_30m_backtest.png",
+    "BTC/USDT Dreamrunner Backtest",
+    "Equity"
+  )?;
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn optimize() -> anyhow::Result<()> {
+  use super::*;
+  use time_series::{Day, Month, Plot};
+  use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+  dotenv::dotenv().ok();
+
+  // let time_series = "solusdt_30m.csv";
+  // let k_rev_start = 0.01;
+  // let k_rev_step = 0.01;
+  // let out_file = "solusdt_30m_optimal_backtest.png";
+
+  let time_series = "ethusdt_30m.csv";
+  let k_rev_start = 0.1;
+  let k_rev_step = 0.1;
+  let out_file = "ethusdt_30m_optimal_backtest.png";
+
+  // let time_series = "btcusdt_30m.csv";
+  // let k_rev_start = 1.0;
+  // let k_rev_step = 1.0;
+  // let out_file = "btcusdt_30m_optimal_backtest.png";
+
+  let capital = 1_000.0;
+  let fee = 0.15;
+
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
+
+  let csv = PathBuf::from(time_series);
+  let mut backtest = Backtest::new(capital, fee);
+  let (candles, signals) = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
 
   let k_src = Source::Close;
   let ma_src = Source::Open;
@@ -559,12 +680,14 @@ async fn optimize() -> anyhow::Result<()> {
     pub summary: Summary
   }
 
-  let mut results = vec![];
-  for i in 0..10 {
-    let k_rev = trunc!(0.01 + (i as f64 * 0.01), 4);
+  let mut results: Vec<BacktestResult> = (0..5000).collect::<Vec<usize>>().into_par_iter().flat_map(|i| {
+    let k_rev = trunc!(k_rev_start + (i as f64 * k_rev_step), 4);
 
-    for j in 0..50 {
+    let results: Vec<BacktestResult> = (0..15).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
       let wma_period = j + 1;
+      let mut backtest = Backtest::new(capital, fee);
+      backtest.candles = candles.clone();
+      backtest.signals = signals.clone();
       backtest.backtest(
         wma_period,
         k_rev,
@@ -572,14 +695,16 @@ async fn optimize() -> anyhow::Result<()> {
         ma_src
       )?;
       let summary = backtest.summary()?;
-      results.push(BacktestResult {
+      let res = BacktestResult {
         k_rev,
         wma_period,
         summary
-      });
-      backtest.reset();
-    }
-  }
+      };
+      DreamrunnerResult::<_>::Ok(res)
+    }).collect();
+    DreamrunnerResult::<_>::Ok(results)
+  }).flatten().collect();
+
   // sort for highest percent ROI first
   results.sort_by(|a, b| b.summary.pnl.partial_cmp(&a.summary.pnl).unwrap());
   let optimized = results.first().unwrap().clone();
@@ -592,7 +717,7 @@ async fn optimize() -> anyhow::Result<()> {
 
   Plot::plot(
     vec![summary.roi_data],
-    "optimized_backtest.png",
+    out_file,
     "Dreamrunner Backtest",
     "Equity"
   )?;

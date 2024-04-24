@@ -74,6 +74,11 @@ async fn main() -> DreamrunnerResult<()> {
       if elapsed > 30 {
         if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
           error!("🛑Error on user stream keep alive: {}", e);
+          if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
+            error!("🛑🛑🛑Failed to retry user stream keep alive: {}", e);
+          }
+        } else {
+          info!("Sent user stream keep alive");
         }
         last_ping = now;
       }

@@ -6,5 +6,4 @@ data/BTCUSD/output/*
 !data/SPX/output/.gitkeep
 !data/BTCUSD/output/.gitkeep
 *.log
-plpl.log
 .env
