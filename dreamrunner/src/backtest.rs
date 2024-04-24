@@ -192,9 +192,8 @@ impl Backtest {
           let factor = 1.0;
 
           let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
-          let quote_pnl = pct_pnl / 100.0 * capital;
-          let fee = self.fee / 100.0;
-          let quote_pnl = quote_pnl - (quote_pnl * fee);
+          let mut quote_pnl = pct_pnl / 100.0 * capital;
+          quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
 
           quote += quote_pnl;
 
@@ -212,7 +211,8 @@ impl Backtest {
           let factor = -1.0;
 
           let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
-          let quote_pnl = pct_pnl / 100.0 * capital;
+          let mut quote_pnl = pct_pnl / 100.0 * capital;
+          quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
 
           quote += quote_pnl;
 
@@ -272,9 +272,8 @@ impl Backtest {
         Order::Short => -1.0,
       };
       let pct_pnl = ((exit.get().price - entry.get().price) / entry.get().price * factor) * 100.0;
-      let quote_pnl = pct_pnl / 100.0 * capital;
-      let fee = self.fee / 100.0;
-      let quote_pnl = quote_pnl - (quote_pnl * fee);
+      let mut quote_pnl = pct_pnl / 100.0 * capital;
+      quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
 
       let quantity = capital / entry.get().price;
       let updated_entry = Trade {
@@ -403,7 +402,8 @@ impl Backtest {
     let last = candles.last().unwrap();
 
     let pct_pnl = ((last.close - first.close) / first.close) * 100.0;
-    let quote_pnl = pct_pnl / 100.0 * start_capital;
+    let mut quote_pnl = pct_pnl / 100.0 * start_capital;
+    quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
 
     Ok(vec![
       Data {
