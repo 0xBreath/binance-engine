@@ -238,6 +238,7 @@ impl Engine {
         if Signal::None != signal {
           info!("{}", signal.print());
           if !self.disable_trading {
+            self.update_assets().await?;
             self.handle_signal(signal).await?;
           }
         }
