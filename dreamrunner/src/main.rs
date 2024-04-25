@@ -73,7 +73,7 @@ async fn main() -> DreamrunnerResult<()> {
       // check if timestamp is 30 seconds after last UserStream keep alive ping
       let elapsed = now.duration_since(last_ping)?.as_secs();
 
-      if elapsed > 30 {
+      if elapsed > 90 {
         if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
           error!("🛑Error on user stream keep alive: {}", e);
           if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
@@ -83,8 +83,6 @@ async fn main() -> DreamrunnerResult<()> {
           info!("Sent user stream keep alive");
         }
         last_ping = now;
-      } else if elapsed > 50 {
-        error!("🛑🛑🛑User stream keep alive ping took too long to respond");
       }
       tokio::time::sleep(Duration::new(1, 0)).await;
     }

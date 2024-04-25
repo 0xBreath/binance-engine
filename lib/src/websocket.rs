@@ -170,10 +170,10 @@ impl<'a> WebSockets<'a> {
         while running.load(Ordering::Relaxed) {
             if let Some(ref mut socket) = self.socket {
                 let now = SystemTime::now();
-                // sending a ping to binance doesn't imply a pong will be received,
-                // but it does keep Heroku from closing the websocket connection
+                // sending a pong keeps the Heroku websocket connection alive for 55 seconds.
+                // We don't need a reply from Binance, so a pong can be used instead of a ping.
                 if now.duration_since(self.last_ping)?.as_secs() > 30 {
-                    debug!("send ping");
+                    debug!("send keep alive ping");
                     socket.0.send(Message::Ping(vec![]))?;
                     self.last_ping = now;
                 }
