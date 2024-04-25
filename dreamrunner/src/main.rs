@@ -44,15 +44,15 @@ async fn main() -> DreamrunnerResult<()> {
 
   let client = match is_testnet()? {
     true => Client::new(
-        Some(binance_test_api_key.to_string()),
-        Some(binance_test_api_secret.to_string()),
-        BINANCE_TEST_API.to_string(),
-      )?,
+      Some(binance_test_api_key.to_string()),
+      Some(binance_test_api_secret.to_string()),
+      BINANCE_TEST_API.to_string(),
+    )?,
     false => Client::new(
-        Some(binance_live_api_key.to_string()),
-        Some(binance_live_api_secret.to_string()),
-        BINANCE_LIVE_API.to_string(),
-      )?
+      Some(binance_live_api_key.to_string()),
+      Some(binance_live_api_secret.to_string()),
+      BINANCE_LIVE_API.to_string(),
+    )?
   };
 
   let user_stream = UserStream {
@@ -62,21 +62,18 @@ async fn main() -> DreamrunnerResult<()> {
   let listen_key = answer.listen_key;
 
   let running = Arc::new(AtomicBool::new(true));
-  
+
   let user_stream_running = running.clone();
   let listen_key_copy = listen_key.clone();
   tokio::task::spawn(async move {
     let mut last_ping = SystemTime::now();
-    
+
     while user_stream_running.load(Ordering::Relaxed) {
       let now = SystemTime::now();
       let elapsed = now.duration_since(last_ping)?.as_secs();
-      if elapsed > 90 {
+      if elapsed > 120 {
         if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
           error!("🛑Error on user stream keep alive: {}", e);
-          if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
-            error!("🛑Failed to retry user stream keep alive: {}", e);
-          }
         } else {
           info!("Sent user stream keep alive");
         }
@@ -109,7 +106,7 @@ async fn main() -> DreamrunnerResult<()> {
     let mut ws = WebSockets::new(testnet,  callback);
 
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
-    
+
     while ws_running.load(Ordering::Relaxed) {
       match ws.connect_multiple_streams(&subs, testnet).await {
         Err(e) => {
@@ -126,6 +123,7 @@ async fn main() -> DreamrunnerResult<()> {
     DreamrunnerResult::<_>::Ok(())
   });
 
+
   let mut engine = Engine::new(
     client,
     rx,
@@ -140,6 +138,6 @@ async fn main() -> DreamrunnerResult<()> {
     Dreamrunner::default()
   );
   engine.ignition().await?;
-  
+
   Ok(())
 }
