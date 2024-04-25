@@ -9,23 +9,18 @@ pub enum KagiDirection {
 #[derive(Debug, Clone, Copy)]
 pub struct Kagi {
   pub direction: KagiDirection,
-  pub line: f64,
+  pub line: f64
 }
 
 impl Kagi {
-  pub fn update(kagi: &Kagi, rev_amt: f64, candle: &Candle) -> Self {
+  pub fn update(kagi: &Kagi, rev_amt: f64, candle: &Candle, prev_candle: &Candle) -> Self {
     let mut new_kagi = *kagi;
-    
+
     match kagi.direction {
       KagiDirection::Up => {
-        // 260% return in 7+ month
         let src = candle.low;
         let diff = candle.close - kagi.line;
-        
-        // 70% return in 7+ months
-        // let src = candle.close;
-        // let diff = candle.low - kagi.line;
-        
+
         if diff.abs() > rev_amt {
           if diff > 0.0 {
             new_kagi.line = src;
@@ -39,14 +34,9 @@ impl Kagi {
         }
       },
       KagiDirection::Down => {
-        // 260% return in 7+ month
         let src = candle.high;
         let diff = candle.close - kagi.line;
-        
-        // 70% return in 7+ months
-        // let src = candle.close;
-        // let diff = candle.high - kagi.line;
-        
+
         if diff.abs() > rev_amt {
           if diff < 0.0 {
             new_kagi.line = src;
@@ -60,6 +50,29 @@ impl Kagi {
         }
       },
     }
+    
+    // match kagi.direction {
+    //   KagiDirection::Up => {
+    //     // candle reverses and drops below kagi line by reversal amount or greater
+    //     if prev_candle.close - candle.close > rev_amt {
+    //       // close is beyond reversal amount in opposite kagi direction
+    //       new_kagi = Kagi {
+    //         line: candle.close,
+    //         direction: KagiDirection::Down,
+    //       };
+    //     }
+    //   },
+    //   KagiDirection::Down => {
+    //     // candle reverses and rises above kagi line by reversal amount or greater
+    //     if candle.close - prev_candle.close > rev_amt {
+    //       // close is beyond reversal amount in opposite kagi direction
+    //       new_kagi = Kagi {
+    //         line: candle.close,
+    //         direction: KagiDirection::Up,
+    //       };
+    //     }
+    //   },
+    // }
     
     new_kagi
   }

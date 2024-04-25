@@ -28,22 +28,25 @@ impl Dreamrunner {
       warn!("Insufficient candles to generate WMA");
       return Ok(Signal::None);
     }
+    
+    // previous candle
+    let c_1 = candles.vec[1];
     // current candle
     let c_0 = candles.vec[0];
+    
     // kagi for previous candle
     let k_1 = *kagi;
     // kagi for current candle
-    let k_0 = Kagi::update(kagi, self.k_rev, &c_0);
+    let k_0 = Kagi::update(kagi, self.k_rev, &c_0, &c_1);
     kagi.line = k_0.line;
     kagi.direction = k_0.direction;
-    
     info!("{:#?}", k_0);
-    let period_from_curr: Vec<&Candle> = candles.vec.range(0..candles.vec.len() - 1).collect();
-    let period_from_prev: Vec<&Candle> = candles.vec.range(1..candles.vec.len()).collect();
-    // weighted moving average for previous candle
-    let wma_1 = self.wma(&period_from_prev);
-    // weighted moving average for current candle
-    let wma_0 = self.wma(&period_from_curr);
+    
+    let period_1: Vec<&Candle> = candles.vec.range(1..candles.vec.len()).collect();
+    let period_0: Vec<&Candle> = candles.vec.range(0..candles.vec.len() - 1).collect();
+    
+    let wma_1 = self.wma(&period_1);
+    let wma_0 = self.wma(&period_0);
     info!("WMA: {}", trunc!(wma_0, 3));
     
     // long if WMA crosses above Kagi and was below Kagi in previous candle

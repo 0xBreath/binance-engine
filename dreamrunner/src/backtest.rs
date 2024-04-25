@@ -76,7 +76,7 @@ impl Backtest {
     let mut candles = Vec::new();
     let mut kagis = Vec::new();
     let mut wmas = Vec::new();
-    
+
     for record in csv.records().flatten() {
       let date = Time::from_unix(
         record[0]
@@ -93,7 +93,7 @@ impl Backtest {
         volume,
       };
       candles.push(candle);
-      
+
       // if long and short signals from tradingview dreamrunner script are present,
       // it assumes they immediately follow the candle as the 5th and 6th indices
       if let (Ok(long), Ok(short)) = (u8::from_str(&record[5]), u8::from_str(&record[6])) {
@@ -106,7 +106,7 @@ impl Backtest {
         };
         signals.push(signal);
       }
-      
+
       // if Kagi and WMA plots from tradingview dreamrunner script are present,
       // it assumes they immediately follow the long/short signals as the 7th and 8th indices
       if let (Ok(kagi), Ok(wma)) = (f64::from_str(&record[7]), f64::from_str(&record[8])) {
@@ -566,9 +566,9 @@ async fn sol_backtest() -> anyhow::Result<()> {
   let capital = 1_000.0;
   let fee = 0.15;
 
-  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(23), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(3), &Day::from_num(6), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
@@ -600,10 +600,29 @@ async fn sol_backtest() -> anyhow::Result<()> {
     "Equity"
   )?;
 
+  let closes: Vec<Data> = backtest.candles.iter().map(|candle| {
+    Data {
+      x: candle.date.to_unix_ms(),
+      y: candle.close
+    }
+  }).collect();
+  let highs: Vec<Data> = backtest.candles.iter().map(|candle| {
+    Data {
+      x: candle.date.to_unix_ms(),
+      y: candle.high
+    }
+  }).collect();
+  let lows: Vec<Data> = backtest.candles.iter().map(|candle| {
+    Data {
+      x: candle.date.to_unix_ms(),
+      y: candle.low
+    }
+  }).collect();
   let rust_kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
   let pine_kagis = csv_series.kagis;
   Plot::plot(
-    vec![rust_kagis, pine_kagis],
+    // vec![closes, highs, lows, pine_kagis],
+    vec![closes, rust_kagis, pine_kagis],
     "kagi_comparison.png",
     "Kagi Comparison",
     "Price"

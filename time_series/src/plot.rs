@@ -61,9 +61,21 @@ impl Plot {
       .draw().map_err(
       |e| anyhow::anyhow!("Failed to draw mesh: {}", e)
     )?;
+    
+    let colors = vec![
+      RED_800,
+      ORANGE_A200,
+      LIME_800,
+      CYAN_800,
+      BLUE_800,
+      DEEPPURPLE_A100,
+      PURPLE_200,
+      GREY_900,
+      BROWN_700,
+    ];
 
-    for data in series {
-      let color = Self::random_color();
+    for (index, data) in series.into_iter().enumerate() {
+      let color = RGBAColor::from(colors[index]);
       chart.draw_series(
         LineSeries::new(
           data.iter().map(|data| (data.x, data.y)),
@@ -88,37 +100,19 @@ impl Plot {
 
   pub fn random_color() -> RGBAColor {
     let colors = [
-      RED_A400,
-      BLUEGREY_700,
-      GREY_400,
-      GREY_900,
-      BROWN_700,
-      DEEPORANGE_A200,
-      DEEPORANGE_200,
-      ORANGE_A200,
-      AMBER_300,
-      AMBER_800,
-      YELLOW_600,
-      LIME_400,
-      LIME_800,
-      LIGHTGREEN_700,
-      GREEN_500,
-      GREEN_900,
-      TEAL_700,
-      TEAL_200,
-      CYAN_800,
-      LIGHTBLUE_A200,
-      BLUE_A700,
-      BLUE_400,
-      BLUE_800,
-      INDIGO_800,
-      INDIGO_300,
-      DEEPPURPLE_A100,
-      PURPLE_A400,
-      PURPLE_200,
       PINK_600,
       RED_800,
-      RED_200,
+      DEEPORANGE_200,
+      YELLOW_600,
+      ORANGE_A200,
+      AMBER_800,
+      LIME_800,
+      CYAN_800,
+      BLUE_800,
+      DEEPPURPLE_A100,
+      PURPLE_200,
+      GREY_900,
+      BROWN_700,
     ];
     // get random color
     RGBAColor::from(colors[rand::random::<usize>() % colors.len()])
