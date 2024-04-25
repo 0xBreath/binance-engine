@@ -117,11 +117,12 @@ impl Account {
 
     pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Summary> {
         let trades = self.trades(symbol).await?;
-        // let initial_capital = trades[0].price * trades[0].quantity;
-        let initial_capital = 1_000.0;
+        let initial_capital = trades[0].price * trades[0].quantity;
+        // let initial_capital = 1_000.0;
         let mut capital = initial_capital;
 
         let mut quote = 0.0;
+        let mut pnl_data = Vec::new();
         let mut quote_data = Vec::new();
         let mut winners = 0;
         let mut total_trades = 0;
@@ -147,6 +148,10 @@ impl Account {
                 x: entry.event_time,
                 y: trunc!(quote, 4)
             });
+            pnl_data.push(Data {
+                x: entry.event_time,
+                y: trunc!(quote / capital * 100.0, 4)
+            })
         }
         let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
         let avg_pct_pnl = avg_quote_pnl / initial_capital * 100.0;
@@ -163,7 +168,7 @@ impl Account {
         info!("trade period: {} - {}", first_trade, last_trade);
 
         Ok(Summary {
-            roi: trunc!(quote, 4),
+            quote: trunc!(quote, 4),
             pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
             win_rate: trunc!(win_rate, 4),
             total_trades,
@@ -171,7 +176,8 @@ impl Account {
             avg_trade_roi: trunc!(avg_quote_pnl, 4),
             avg_trade_pnl: trunc!(avg_pct_pnl, 4),
             max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-            roi_data: quote_data
+            quote_data,
+            pnl_data
         })
     }
 

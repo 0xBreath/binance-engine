@@ -42,7 +42,7 @@ impl Signal {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Summary {
-  pub roi: f64,
+  pub quote: f64,
   pub pnl: f64,
   pub win_rate: f64,
   pub total_trades: usize,
@@ -52,12 +52,13 @@ pub struct Summary {
   pub avg_trade_roi: f64,
   pub avg_trade_pnl: f64,
   pub max_pct_drawdown: f64,
-  pub roi_data: Vec<Data>
+  pub quote_data: Vec<Data>,
+  pub pnl_data: Vec<Data>
 }
 impl Summary {
   pub fn print(&self) {
     println!("Return: {}%", self.pnl);
-    println!("Return: ${}", self.roi);
+    println!("Return: ${}", self.quote);
     println!("Avg Trade Return: ${}", self.avg_trade_pnl);
     println!("Avg Trade Size: ${}", self.avg_trade_size);
     println!("Win Rate: {}%", self.win_rate);

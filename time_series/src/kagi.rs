@@ -20,7 +20,7 @@ impl Kagi {
       KagiDirection::Up => {
         let src = candle.low;
         let diff = candle.close - kagi.line;
-
+    
         if diff.abs() > rev_amt {
           if diff > 0.0 {
             new_kagi.line = src;
@@ -36,7 +36,7 @@ impl Kagi {
       KagiDirection::Down => {
         let src = candle.high;
         let diff = candle.close - kagi.line;
-
+    
         if diff.abs() > rev_amt {
           if diff < 0.0 {
             new_kagi.line = src;

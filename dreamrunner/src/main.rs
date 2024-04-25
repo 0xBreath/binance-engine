@@ -131,7 +131,7 @@ async fn main() -> DreamrunnerResult<()> {
         }
       }
     }
-    warn!("🟡 Shutting websocket stream");
+    warn!("🟡 Shutting down websocket stream");
     DreamrunnerResult::<_>::Ok(())
   });
 

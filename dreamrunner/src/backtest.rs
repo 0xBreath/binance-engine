@@ -244,6 +244,7 @@ impl Backtest {
     let signals = &self.signals;
 
     let mut quote = 0.0;
+    let mut pnl_data = Vec::new();
     let mut quote_data = Vec::new();
     let mut winners = 0;
     let mut total_trades = 0;
@@ -294,6 +295,10 @@ impl Backtest {
             x: date.to_unix_ms(),
             y: trunc!(quote, 4)
           });
+          pnl_data.push(Data {
+            x: date.to_unix_ms(),
+            y: trunc!(quote_pnl / capital * 100.0, 4)
+          })
         },
         _ => continue
       }
@@ -309,7 +314,7 @@ impl Backtest {
     let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
 
     Ok(Summary {
-      roi: trunc!(quote, 4),
+      quote: trunc!(quote, 4),
       pnl: trunc!(quote / capital * 100.0, 4),
       win_rate: trunc!(win_rate, 4),
       total_trades,
@@ -317,7 +322,8 @@ impl Backtest {
       avg_trade_roi: trunc!(avg_quote_pnl, 4),
       avg_trade_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      roi_data: quote_data
+      quote_data,
+      pnl_data
     })
   }
 
@@ -327,6 +333,7 @@ impl Backtest {
     let initial_capital = capital;
 
     let mut quote = 0.0;
+    let mut pnl_data = Vec::new();
     let mut quote_data = Vec::new();
     let mut winners = 0;
     let mut total_trades = 0;
@@ -365,6 +372,10 @@ impl Backtest {
         x: entry.get().date.to_unix_ms(),
         y: trunc!(quote, 4)
       });
+      pnl_data.push(Data {
+        x: entry.get().date.to_unix_ms(),
+        y: trunc!(quote_pnl / initial_capital * 100.0, 4)
+      });
 
       let quantity = capital / exit.get().price;
       let updated_exit = Trade {
@@ -390,7 +401,7 @@ impl Backtest {
     let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
 
     Ok(Summary {
-      roi: trunc!(quote, 4),
+      quote: trunc!(quote, 4),
       pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
       win_rate: trunc!(win_rate, 4),
       total_trades,
@@ -398,7 +409,8 @@ impl Backtest {
       avg_trade_roi: trunc!(avg_quote_pnl, 4),
       avg_trade_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      roi_data: quote_data
+      quote_data,
+      pnl_data
     })
   }
 
@@ -567,7 +579,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   let fee = 0.15;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(3), &Day::from_num(6), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(21), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
 
   let out_file = "solusdt_30m.csv";
@@ -594,7 +606,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.roi_data, backtest.buy_and_hold()?],
+    vec![summary.quote_data, backtest.buy_and_hold()?],
     "solusdt_30m_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
     "Equity"
@@ -606,22 +618,9 @@ async fn sol_backtest() -> anyhow::Result<()> {
       y: candle.close
     }
   }).collect();
-  let highs: Vec<Data> = backtest.candles.iter().map(|candle| {
-    Data {
-      x: candle.date.to_unix_ms(),
-      y: candle.high
-    }
-  }).collect();
-  let lows: Vec<Data> = backtest.candles.iter().map(|candle| {
-    Data {
-      x: candle.date.to_unix_ms(),
-      y: candle.low
-    }
-  }).collect();
   let rust_kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
   let pine_kagis = csv_series.kagis;
   Plot::plot(
-    // vec![closes, highs, lows, pine_kagis],
     vec![closes, rust_kagis, pine_kagis],
     "kagi_comparison.png",
     "Kagi Comparison",
@@ -669,7 +668,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.roi_data, backtest.buy_and_hold()?],
+    vec![summary.quote_data, backtest.buy_and_hold()?],
     "ethusdt_30m_backtest.png",
     "ETH/USDT Dreamrunner Backtest",
     "Equity"
@@ -714,7 +713,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.roi_data, backtest.buy_and_hold()?],
+    vec![summary.quote_data, backtest.buy_and_hold()?],
     "btcusdt_30m_backtest.png",
     "BTC/USDT Dreamrunner Backtest",
     "Equity"
@@ -801,7 +800,7 @@ async fn optimize() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.roi_data],
+    vec![summary.quote_data],
     out_file,
     "Dreamrunner Backtest",
     "Equity"
