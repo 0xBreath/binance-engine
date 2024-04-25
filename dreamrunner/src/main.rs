@@ -92,16 +92,16 @@ async fn main() -> DreamrunnerResult<()> {
 
   let ws_running = running.clone();
   tokio::task::spawn(async move {
-    let callback: Callback = Box::new(|event: WebSocketEvent| {
+    let callback: Callback = Box::new(move |event: WebSocketEvent| {
       match event {
         WebSocketEvent::Kline(_) => {
-          Ok(tx.send(event)?)
+          DreamrunnerResult::<_>::Ok(tx.send(event)?)
         }
         WebSocketEvent::AccountUpdate(_) => {
-          Ok(tx.send(event)?)
+          DreamrunnerResult::<_>::Ok(tx.send(event)?)
         }
         WebSocketEvent::OrderTrade(_) => {
-          Ok(tx.send(event)?)
+          DreamrunnerResult::<_>::Ok(tx.send(event)?)
         }
         _ => DreamrunnerResult::<_>::Ok(()),
       }
@@ -111,12 +111,12 @@ async fn main() -> DreamrunnerResult<()> {
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
     
     while ws_running.load(Ordering::Relaxed) {
-      match ws.connect_multiple_streams(&subs, testnet) {
+      match ws.connect_multiple_streams(&subs, testnet).await {
         Err(e) => {
           error!("🛑Failed to connect Binance websocket: {}", e);
         }
         Ok(_) => {
-          if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
+          if let Err(e) = ws.event_loop(&AtomicBool::new(true)).await {
             error!("🛑Binance websocket error: {:#?}", e);
           }
         }

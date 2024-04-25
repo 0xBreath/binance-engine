@@ -3,8 +3,6 @@ resolver = "2"
 members = [
     "dreamrunner",
     "lib",
-    "relay"
-,
     "server",
     "time_series"]
 
