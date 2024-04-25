@@ -40,8 +40,6 @@ pub enum DreamrunnerError {
     UrlParser(#[from] url::ParseError),
     #[error("Json: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("Tungstenite: {0}")]
-    Tungstenite(#[from] tungstenite::Error),
     #[error("TokioTungstenite: {0}")]
     TokioTungstenite(#[from] tokio_tungstenite::tungstenite::Error),
     #[error("OrderStatusParseError: {0}")]

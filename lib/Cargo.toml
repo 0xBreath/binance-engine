@@ -24,7 +24,5 @@ thiserror = { workspace = true }
 time = { workspace = true }
 time_series = { path = "../time_series" }
 tokio = { workspace = true }
-tungstenite = { workspace = true }
-tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
-#futures-util = { version = "0.3.30", features = ["default"] }
+tokio-tungstenite = { version = "0.21.0", features = ["native-tls", "handshake"] }
 url = { workspace = true }

@@ -1,12 +1,6 @@
 #![allow(clippy::result_large_err)]
+#![allow(dead_code)]
 
-// use std::future::Future;
-// use std::pin::Pin;
-// use tokio::net::TcpStream;
-// use futures::{StreamExt, SinkExt};
-// use tokio_tungstenite::MaybeTlsStream;
-// use tokio_tungstenite::WebSocketStream;
-// use tokio_tungstenite::connect_async;
 use crate::config::Config;
 use crate::errors::{DreamrunnerError, DreamrunnerResult};
 use crate::model::{
@@ -70,11 +64,9 @@ pub enum WebSocketEvent {
 
 pub type Callback<'a> = Box<dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a>;
 pub type CallbackInner<'a> = dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a;
-// pub type Callback = Box<dyn FnMut(WebSocketEvent) -> Pin<Box<dyn Future<Output = DreamrunnerResult<()>> + Send>> + Sync>;
 
 pub struct WebSockets<'a> {
     pub socket: Option<(WebSocket<MaybeTlsStream<TcpStream>>, Response)>,
-    // pub socket: Option<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response)>,
     handler: Callback<'a>,
     testnet: bool,
     last_ping: SystemTime
@@ -109,8 +101,7 @@ impl<'a> WebSockets<'a> {
             last_ping: SystemTime::now()
         }
     }
-
-    #[allow(dead_code)]
+    
     pub fn connect(&mut self, subscription: &str) -> DreamrunnerResult<()> {
         self.connect_wss(&WebSocketAPI::Default.params(subscription, self.testnet))
     }
@@ -123,7 +114,7 @@ impl<'a> WebSockets<'a> {
 
     pub fn connect_multiple_streams(&mut self, endpoints: &[String], testnet: bool) -> DreamrunnerResult<()> {
         self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet))?;
-        info!("Binance websocket connected");
+        info!("✅ Binance websocket connected");
         Ok(())
     }
 
@@ -183,7 +174,7 @@ impl<'a> WebSockets<'a> {
                 // but it does keep Heroku from closing the websocket connection
                 if now.duration_since(self.last_ping)?.as_secs() > 30 {
                     debug!("send ping");
-                    socket.0.send(Message::Pong(vec![]))?;
+                    socket.0.send(Message::Ping(vec![]))?;
                     self.last_ping = now;
                 }
                 

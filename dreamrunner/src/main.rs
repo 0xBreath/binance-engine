@@ -2,9 +2,9 @@ use lib::*;
 use dotenv::dotenv;
 use log::*;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
-use tokio::runtime::Handle;
 
 mod engine;
 mod utils;
@@ -61,12 +61,14 @@ async fn main() -> DreamrunnerResult<()> {
   let answer = user_stream.start().await?;
   let listen_key = answer.listen_key;
 
-  let running = AtomicBool::new(true);
+  let running = Arc::new(AtomicBool::new(true));
+  
+  let user_stream_running = running.clone();
   let listen_key_copy = listen_key.clone();
   tokio::task::spawn(async move {
     let mut last_ping = SystemTime::now();
     
-    while running.load(Ordering::Relaxed) {
+    while user_stream_running.load(Ordering::Relaxed) {
       let now = SystemTime::now();
       // check if timestamp is 30 seconds after last UserStream keep alive ping
       let elapsed = now.duration_since(last_ping)?.as_secs();
@@ -92,6 +94,7 @@ async fn main() -> DreamrunnerResult<()> {
 
   let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
 
+  let ws_running = running.clone();
   tokio::task::spawn(async move {
     let callback: Callback = Box::new(|event: WebSocketEvent| {
       match event {
@@ -111,24 +114,14 @@ async fn main() -> DreamrunnerResult<()> {
 
     let subs = vec![KLINE_STREAM.to_string(), listen_key];
     
-    while AtomicBool::new(true).load(Ordering::Relaxed) {
+    while ws_running.load(Ordering::Relaxed) {
       match ws.connect_multiple_streams(&subs, testnet) {
         Err(e) => {
           error!("🛑Failed to connect Binance websocket: {}", e);
-          tokio::task::block_in_place(move || {
-            Handle::current().block_on(async move {
-              tokio::time::sleep(Duration::from_secs(5)).await
-            })
-          });
         }
         Ok(_) => {
           if let Err(e) = ws.event_loop(&AtomicBool::new(true)) {
             error!("🛑Binance websocket error: {:#?}", e);
-            tokio::task::block_in_place(move || {
-              Handle::current().block_on(async move {
-                tokio::time::sleep(Duration::from_secs(5)).await
-              })
-            });
           }
         }
       }
@@ -151,6 +144,6 @@ async fn main() -> DreamrunnerResult<()> {
     Dreamrunner::default()
   );
   engine.ignition().await?;
-
+  
   Ok(())
 }

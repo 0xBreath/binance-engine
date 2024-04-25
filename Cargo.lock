@@ -1256,7 +1256,6 @@ dependencies = [
  "time_series",
  "tokio",
  "tokio-tungstenite",
- "tungstenite 0.18.0",
  "url",
 ]
 
