@@ -199,10 +199,9 @@ impl<'a> WebSockets<'a> {
                     },
                     Message::Ping(msg) => {
                         debug!("recv ping");
-                        let now = SystemTime::now();
                         match socket.0.send(Message::Pong(msg)) {
                             Ok(_) => {
-                                info!("send pong after {}ms", now.elapsed()?.as_millis());
+                                debug!("send pong");
                             }
                             Err(e) => {
                                 error!("Failed to reply with pong: {:#?}", e);
