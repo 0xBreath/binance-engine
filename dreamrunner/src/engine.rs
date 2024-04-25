@@ -80,6 +80,7 @@ impl Engine {
     // so we fetch one less than the rolling period and wait for the next candle to close to ensure we trade immediately.
     self.load_recent_candles(Some((self.candles.capacity - 1) as u16)).await?;
 
+    info!("🚀 Starting Dreamrunner!");
     while let Ok(event) = self.rx.recv() {
       match event {
         WebSocketEvent::Kline(kline) => {
@@ -211,6 +212,9 @@ impl Engine {
   }
 
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
+    if !self.disable_trading {
+      return Ok(());
+    }
     match signal {
       Signal::Long((price, time)) => {
         let order = self.long_order(price, time)?;

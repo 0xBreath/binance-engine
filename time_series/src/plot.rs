@@ -63,13 +63,12 @@ impl Plot {
     )?;
     
     let colors = vec![
-      RED_800,
-      ORANGE_A200,
-      LIME_800,
       CYAN_800,
-      BLUE_800,
-      DEEPPURPLE_A100,
+      RED_800,
+      LIME_800,
       PURPLE_200,
+      ORANGE_A200,
+      BLUE_800,
       GREY_900,
       BROWN_700,
     ];

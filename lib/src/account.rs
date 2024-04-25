@@ -1,3 +1,5 @@
+#![allow(clippy::unnecessary_cast)]
+
 use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;

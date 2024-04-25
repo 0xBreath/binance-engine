@@ -20,6 +20,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::connect_async;
 use url::Url;
+use crate::{Client, UserStream};
 
 #[allow(clippy::all)]
 enum WebSocketAPI {
@@ -71,8 +72,12 @@ pub type Callback = Box<dyn Fn(WebSocketEvent) -> DreamrunnerResult<()> + Send +
 pub struct WebSockets {
     pub socket: Option<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response)>,
     handler: Callback,
-    testnet: bool,
-    last_ping: SystemTime
+    pub testnet: bool,
+    pub last_ping: SystemTime,
+    pub last_restart: SystemTime,
+    pub is_connected: AtomicBool,
+    pub listen_key: String,
+    pub user_stream: UserStream
 }
 
 impl Drop for WebSockets {
@@ -104,16 +109,16 @@ enum Events {
 }
 
 impl WebSockets {
-    pub fn new(testnet: bool, handler: Callback) -> WebSockets
-    // where
-    // C: FnMut(WebSocketEvent) -> Pin<Box<dyn Future<Output = DreamrunnerResult<()>> + Send>> + Sync + 'static,
-    // C: FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a,
-    {
+    pub fn new(testnet: bool, client: Client, handler: Callback) -> WebSockets {
         WebSockets {
             socket: None,
             handler,
             testnet,
-            last_ping: SystemTime::now()
+            last_ping: SystemTime::now(),
+            last_restart: SystemTime::now(),
+            is_connected: AtomicBool::new(false),
+            listen_key: String::new(),
+            user_stream: UserStream { client }
         }
     }
 
@@ -181,9 +186,60 @@ impl WebSockets {
         }
         Ok(())
     }
+    
+    async fn check_user_stream(&self) -> DreamrunnerResult<()> {
+        let now = SystemTime::now();
+        let hours_since_ping = now.duration_since(self.last_restart)?.as_secs() / 60 / 60;
+        if hours_since_ping > 8 || !self.is_connected.load(Ordering::Relaxed) {
+            match self.user_stream.keep_alive(&self.listen_key).await {
+                Err(e) => {
+                    error!("🛑Error on user stream keep alive: {}", e);
+                    self.user_stream.close(&self.listen_key).await?;
+                    self.is_connected.store(false, Ordering::Relaxed);
+                },
+                Ok(_) => {
+                    info!("Sent user stream keep alive");
+                }
+            }
+        }
+        Ok(())
+    }
+    
+    pub async fn connect_user_stream(&mut self) -> DreamrunnerResult<()> {
+        match self.user_stream.start().await {
+            Err(e) => {
+                error!("🛑Failed to reconnect user stream: {}", e);
+            }
+            Ok(answer) => {
+                info!("🟢Reconnected user stream");
+                self.listen_key = answer.listen_key;
+                self.last_restart = SystemTime::now();
+                self.is_connected.store(true, Ordering::Relaxed);
+            }
+        }
+        Ok(())
+    }
 
-    pub async fn event_loop(&mut self, running: &AtomicBool) -> DreamrunnerResult<()> {
-        while running.load(Ordering::Relaxed) {
+    pub async fn disconnect_user_stream(&mut self) -> DreamrunnerResult<()> {
+        match self.user_stream.close(&self.listen_key).await {
+            Err(e) => {
+                error!("🛑Failed to disconnect user stream: {}", e);
+            }
+            Ok(_) => {
+                info!("🟢Disconnect user stream");
+                self.listen_key = String::new();
+                self.last_restart = SystemTime::now();
+                self.is_connected.store(false, Ordering::Relaxed);
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn event_loop(&mut self) -> DreamrunnerResult<()> {
+        while self.is_connected.load(Ordering::Relaxed) {
+            // if user stream is disconnected it will set `is_connected` to false which will break the event loop
+            self.check_user_stream().await?;
+            
             if let Some(ref mut socket) = self.socket {
                 let now = SystemTime::now();
                 // sending a ping to binance doesn't imply a pong will be received,
@@ -192,7 +248,6 @@ impl WebSockets {
                     debug!("send ping");
                     socket.0.send(Message::Ping(vec![])).await?;
                     self.last_ping = now;
-
                 }
 
                 if let Some(msg) = socket.0.next().await {

@@ -4,7 +4,6 @@ use log::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
 
 mod engine;
 mod utils;
@@ -27,8 +26,7 @@ pub const TICKER: &str = "SOLUSDT";
 #[tokio::main]
 async fn main() -> DreamrunnerResult<()> {
   dotenv().ok();
-  init_logger(&PathBuf::from("dreamrunner.log".to_string()))?;
-  info!("Starting Binance Dreamrunner!");
+  init_logger()?;
 
   let binance_test_api_key = std::env::var("BINANCE_TEST_API_KEY")?;
   let binance_test_api_secret = std::env::var("BINANCE_TEST_API_SECRET")?;
@@ -55,38 +53,24 @@ async fn main() -> DreamrunnerResult<()> {
     )?
   };
 
-  let user_stream = UserStream {
-    client: client.clone(),
-  };
-  let answer = user_stream.start().await?;
-  let listen_key = answer.listen_key;
-
-  let running = Arc::new(AtomicBool::new(true));
-
-  let user_stream_running = running.clone();
-  let listen_key_copy = listen_key.clone();
-  tokio::task::spawn(async move {
-    let mut last_ping = SystemTime::now();
-
-    while user_stream_running.load(Ordering::Relaxed) {
-      let now = SystemTime::now();
-      let elapsed = now.duration_since(last_ping)?.as_secs();
-      if elapsed > 120 {
-        if let Err(e) = user_stream.keep_alive(&listen_key_copy).await {
-          error!("🛑Error on user stream keep alive: {}", e);
-        } else {
-          info!("Sent user stream keep alive");
-        }
-        last_ping = now;
-      }
-      tokio::time::sleep(Duration::new(1, 0)).await;
-    }
-    warn!("🟡 Shutting down user stream");
-    DreamrunnerResult::<_>::Ok(())
-  });
-
   let (tx, rx) = crossbeam::channel::unbounded::<WebSocketEvent>();
 
+  let mut engine = Engine::new(
+    client.clone(),
+    rx,
+    disable_trading,
+    BASE_ASSET.to_string(),
+    QUOTE_ASSET.to_string(),
+    TICKER.to_string(),
+    INTERVAL,
+    min_notional,
+    equity_pct,
+    wma_period,
+    Dreamrunner::default()
+  );
+  
+  let running = Arc::new(AtomicBool::new(true));
+  
   let ws_running = running.clone();
   tokio::task::spawn(async move {
     let callback: Callback = Box::new(move |event: WebSocketEvent| {
@@ -103,41 +87,42 @@ async fn main() -> DreamrunnerResult<()> {
         _ => DreamrunnerResult::<_>::Ok(()),
       }
     });
-    let mut ws = WebSockets::new(testnet,  callback);
-
-    let subs = vec![KLINE_STREAM.to_string(), listen_key];
-
+    let mut ws = WebSockets::new(testnet, client, callback);
+    
     while ws_running.load(Ordering::Relaxed) {
+      // reconnect user stream and update listen key
+      ws.connect_user_stream().await?;
+      
+      // reconnect Binance websocket
+      let subs = vec![KLINE_STREAM.to_string(), ws.listen_key.clone()];
       match ws.connect_multiple_streams(&subs, testnet).await {
         Err(e) => {
-          error!("🛑Failed to connect Binance websocket: {}", e);
+          error!("🛑Failed to connect websocket: {}", e);
         }
         Ok(_) => {
-          if let Err(e) = ws.event_loop(&AtomicBool::new(true)).await {
-            error!("🛑Binance websocket error: {:#?}", e);
+          // if user stream is disconnected it will set `is_connected` to false which will break the event loop.
+          // then this outer while loop will literate and reconnect the user stream and websocket
+          match ws.event_loop().await {
+            Err(e) => error!("🛑Websocket error: {:#?}", e),
+            Ok(_) => warn!("🟡 Websocket needs to reconnect")
           }
         }
       }
     }
     warn!("🟡 Shutting down websocket stream");
+    ws.disconnect().await?;
+    ws.disconnect_user_stream().await?;
+    
     DreamrunnerResult::<_>::Ok(())
   });
 
-
-  let mut engine = Engine::new(
-    client,
-    rx,
-    disable_trading,
-    BASE_ASSET.to_string(),
-    QUOTE_ASSET.to_string(),
-    TICKER.to_string(),
-    INTERVAL,
-    min_notional,
-    equity_pct,
-    wma_period,
-    Dreamrunner::default()
-  );
+  // start engine that listens to websocket updates (candles, account balance updates, trade updates)
   engine.ignition().await?;
+  
+  // wait for ctrl-c SIGINT to execute graceful shutdown
+  tokio::signal::ctrl_c().await?;
+  warn!("🟡 Shutting down Dreamrunner...");
+  running.store(false, Ordering::Relaxed);
 
   Ok(())
 }
