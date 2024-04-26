@@ -208,10 +208,10 @@ impl WebSockets {
     pub async fn connect_user_stream(&mut self) -> DreamrunnerResult<()> {
         match self.user_stream.start().await {
             Err(e) => {
-                error!("🛑Failed to reconnect user stream: {}", e);
+                error!("🛑 Failed to reconnect user stream: {}", e);
             }
             Ok(answer) => {
-                info!("🟢Reconnected user stream");
+                info!("🟢 Reconnected user stream");
                 self.listen_key = answer.listen_key;
                 self.last_restart = SystemTime::now();
                 self.is_connected.store(true, Ordering::Relaxed);
@@ -223,10 +223,10 @@ impl WebSockets {
     pub async fn disconnect_user_stream(&mut self) -> DreamrunnerResult<()> {
         match self.user_stream.close(&self.listen_key).await {
             Err(e) => {
-                error!("🛑Failed to disconnect user stream: {}", e);
+                error!("🛑 Failed to disconnect user stream: {}", e);
             }
             Ok(_) => {
-                info!("🟢Disconnect user stream");
+                info!("🟢 Disconnect user stream");
                 self.listen_key = String::new();
                 self.last_restart = SystemTime::now();
                 self.is_connected.store(false, Ordering::Relaxed);
@@ -265,7 +265,7 @@ impl WebSockets {
                             debug!("recv ping");
                             match socket.0.send(Message::Pong(msg)).await {
                                 Ok(_) => {
-                                    info!("send pong");
+                                    debug!("send pong");
                                 }
                                 Err(e) => {
                                     error!("Failed to reply with pong: {:#?}", e);
@@ -274,7 +274,7 @@ impl WebSockets {
                             }
                         }
                         Message::Pong(_) => {
-                            info!("recv pong");
+                            debug!("recv pong");
                         }
                         Message::Binary(_) | Message::Frame(_) => return Ok(()),
                         Message::Close(e) => {

@@ -154,17 +154,16 @@ async fn exchange_info(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpRes
 #[get("/pnl")]
 async fn pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
-      .pnl(account.ticker.clone()).await?;
-    Ok(HttpResponse::Ok().json(res))
+      .summary(account.ticker.clone()).await?;
+    Ok(HttpResponse::Ok().json(res.summarize()))
 }
 
 #[get("/plotPnl")]
 async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
-      .pnl(account.ticker.clone()).await?;
-    
+      .summary(account.ticker.clone()).await?;
     Plot::plot(
-        vec![res.quote_data.0],
+        vec![res.cum_quote.0],
         "dreamrunner_roi.png",
         "Quote Pnl",
         QUOTE_ASSET

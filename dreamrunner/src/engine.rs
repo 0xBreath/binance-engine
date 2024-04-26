@@ -210,7 +210,7 @@ impl Engine {
   }
 
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
-    if !self.disable_trading {
+    if self.disable_trading {
       return Ok(());
     }
     match signal {

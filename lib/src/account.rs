@@ -117,69 +117,48 @@ impl Account {
         Ok(trades)
     }
 
-    pub async fn pnl(&self, symbol: String) -> DreamrunnerResult<Summary> {
+    pub async fn summary(&self, symbol: String) -> DreamrunnerResult<Summary> {
         let trades = self.trades(symbol).await?;
         let initial_capital = trades[0].price * trades[0].quantity;
-        // let initial_capital = 1_000.0;
         let mut capital = initial_capital;
 
         let mut quote = 0.0;
-        let mut pnl_data = Vec::new();
-        let mut quote_data = Vec::new();
-        let mut winners = 0;
-        let mut total_trades = 0;
+        let mut cum_pct = Vec::new();
+        let mut cum_quote = Vec::new();
+        let mut pct_per_trade = Vec::new();
         for trades in trades.windows(2).rev() {
-            let exit = &trades[1];
             let entry = &trades[0];
+            let exit = &trades[1];
             let factor = match entry.side {
                 Side::Long => 1.0,
                 Side::Short => -1.0,
             };
             let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
-            let quote_pnl = pct_pnl / 100.0 * capital;
-
-            // capital = exit.quantity * exit.price;
+            // let quote_pnl = pct_pnl / 100.0 * capital;
+            let quote_pnl = pct_pnl / 100.0 * (entry.price * entry.quantity);
+            
             capital += quote_pnl;
             quote += quote_pnl;
-
-            if quote_pnl > 0.0 {
-                winners += 1;
-            }
-            total_trades += 1;
-            quote_data.push(Data {
+            
+            cum_quote.push(Data {
                 x: entry.event_time,
                 y: trunc!(quote, 4)
             });
-            pnl_data.push(Data {
+            cum_pct.push(Data {
                 x: entry.event_time,
-                y: trunc!(quote / capital * 100.0, 4)
+                y: trunc!(capital / initial_capital * 100.0 - 100.0, 4)
+            });
+            pct_per_trade.push(Data {
+                x: entry.event_time,
+                y: trunc!(pct_pnl, 4)
             })
         }
-        let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
-        let avg_pct_pnl = avg_quote_pnl / initial_capital * 100.0;
-        let win_rate = (winners as f64 / total_trades as f64) * 100.0;
-        let (max_quote, quote_drawdown) = quote_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
-            let max = (max as f64).max(d.y);
-            let drawdown = (drawdown as f64).min(d.y - max);
-            (max, drawdown)
-        });
-        let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
-
-        let first_trade = Time::from_unix_ms(trades.last().unwrap().event_time).to_string();
-        let last_trade = Time::from_unix_ms(trades.first().unwrap().event_time).to_string();
-        info!("trade period: {} - {}", first_trade, last_trade);
-
+        
         Ok(Summary {
-            quote: trunc!(quote, 4),
-            pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
-            win_rate: trunc!(win_rate, 4),
-            total_trades,
             avg_trade_size: self.avg_quote_trade_size(self.ticker.clone()).await?,
-            avg_trade_roi: trunc!(avg_quote_pnl, 4),
-            avg_trade_pnl: trunc!(avg_pct_pnl, 4),
-            max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-            quote_data: Dataset::new(quote_data),
-            pnl_data: Dataset::new(pnl_data)
+            cum_quote: Dataset::new(cum_quote),
+            cum_pct: Dataset::new(cum_pct),
+            pct_per_trade: Dataset::new(pct_per_trade)
         })
     }
 

@@ -107,7 +107,6 @@ impl Dataset {
 
       // Compute Z-score for the last element in the window
       let last = window.last().unwrap().clone();
-      println!("{:#?}", last);
       let y = (last.y - mean) / std_dev;
       z_scores.push(Data {
         x: last.x,

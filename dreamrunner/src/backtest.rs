@@ -238,182 +238,6 @@ impl Backtest {
     Ok(trunc!(avg, 4))
   }
 
-  /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn backtest_tradingview(&self) -> anyhow::Result<Summary> {
-    let capital = self.capital;
-    let signals = &self.signals;
-
-    let mut quote = 0.0;
-    let mut pnl_data = Vec::new();
-    let mut quote_data = Vec::new();
-    let mut winners = 0;
-    let mut total_trades = 0;
-
-    // filter out None signals
-    let signals = signals.iter().filter(|s| {
-      !matches!(s, Signal::None)
-    }).collect::<Vec<&Signal>>();
-
-    for signals in signals.windows(2) {
-      let exit = &signals[1];
-      let entry = &signals[0];
-      match (entry, exit) {
-        (Signal::Long((entry, date)), Signal::Short((exit, _))) => {
-          let factor = 1.0;
-
-          let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
-          let mut quote_pnl = pct_pnl / 100.0 * capital;
-          quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
-
-          quote += quote_pnl;
-
-          if quote_pnl > 0.0 {
-            winners += 1;
-          }
-          total_trades += 1;
-
-          quote_data.push(Data {
-            x: date.to_unix_ms(),
-            y: trunc!(quote, 4)
-          });
-        },
-        (Signal::Short((entry, date)), Signal::Long((exit, _))) => {
-          let factor = -1.0;
-
-          let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
-          let mut quote_pnl = pct_pnl / 100.0 * capital;
-          quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
-
-          quote += quote_pnl;
-
-          if quote_pnl > 0.0 {
-            winners += 1;
-          }
-          total_trades += 1;
-
-          quote_data.push(Data {
-            x: date.to_unix_ms(),
-            y: trunc!(quote, 4)
-          });
-          pnl_data.push(Data {
-            x: date.to_unix_ms(),
-            y: trunc!(quote_pnl / capital * 100.0, 4)
-          })
-        },
-        _ => continue
-      }
-    }
-    let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
-    let avg_pct_pnl = avg_quote_pnl / capital * 100.0;
-    let win_rate = (winners as f64 / total_trades as f64) * 100.0;
-    let (max_quote, quote_drawdown) = quote_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
-      let max = (max as f64).max(d.y);
-      let drawdown = (drawdown as f64).min(d.y - max);
-      (max, drawdown)
-    });
-    let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
-
-    Ok(Summary {
-      quote: trunc!(quote, 4),
-      pnl: trunc!(quote / capital * 100.0, 4),
-      win_rate: trunc!(win_rate, 4),
-      total_trades,
-      avg_trade_size: self.avg_quote_trade_size()?,
-      avg_trade_roi: trunc!(avg_quote_pnl, 4),
-      avg_trade_pnl: trunc!(avg_pct_pnl, 4),
-      max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      quote_data: Dataset::new(quote_data),
-      pnl_data: Dataset::new(pnl_data)
-    })
-  }
-
-  /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn summary(&mut self) -> anyhow::Result<Summary> {
-    let mut capital = self.capital;
-    let initial_capital = capital;
-
-    let mut quote = 0.0;
-    let mut pnl_data = Vec::new();
-    let mut quote_data = Vec::new();
-    let mut winners = 0;
-    let mut total_trades = 0;
-
-    let slice = &mut self.trades.clone()[..];
-    let slice_of_cells: &[Cell<Trade>] = Cell::from_mut(slice).as_slice_of_cells();
-    for trades in slice_of_cells.windows(2) {
-      let exit = &trades[1];
-      let entry = &trades[0];
-      let factor = match entry.get().side {
-        Order::Long => 1.0,
-        Order::Short => -1.0,
-      };
-      let pct_pnl = ((exit.get().price - entry.get().price) / entry.get().price * factor) * 100.0;
-      let mut quote_pnl = pct_pnl / 100.0 * capital;
-      quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
-
-      let quantity = capital / entry.get().price;
-      let updated_entry = Trade {
-        date: entry.get().date,
-        side: entry.get().side,
-        quantity,
-        price: entry.get().price
-      };
-      Cell::swap(entry, &Cell::from(updated_entry));
-
-      capital += quote_pnl;
-      quote += quote_pnl;
-
-      if quote_pnl > 0.0 {
-        winners += 1;
-      }
-      total_trades += 1;
-
-      quote_data.push(Data {
-        x: entry.get().date.to_unix_ms(),
-        y: trunc!(quote, 4)
-      });
-      pnl_data.push(Data {
-        x: entry.get().date.to_unix_ms(),
-        y: trunc!(quote_pnl / initial_capital * 100.0, 4)
-      });
-
-      let quantity = capital / exit.get().price;
-      let updated_exit = Trade {
-        date: exit.get().date,
-        side: exit.get().side,
-        quantity,
-        price: exit.get().price
-      };
-      Cell::swap(exit, &Cell::from(updated_exit));
-    }
-
-    // set self.trades to slice_of_cells
-    self.trades = slice_of_cells.iter().map(|cell| cell.get()).collect();
-
-    let avg_quote_pnl = quote_data.iter().map(|d| d.y).sum::<f64>() / quote_data.len() as f64;
-    let avg_pct_pnl = avg_quote_pnl / initial_capital * 100.0;
-    let win_rate = (winners as f64 / total_trades as f64) * 100.0;
-    let (max_quote, quote_drawdown) = quote_data.iter().fold((0.0, 0.0), |(max, drawdown), d| {
-      let max = (max as f64).max(d.y);
-      let drawdown = (drawdown as f64).min(d.y - max);
-      (max, drawdown)
-    });
-    let max_pct_drawdown = quote_drawdown / max_quote * 100.0;
-
-    Ok(Summary {
-      quote: trunc!(quote, 4),
-      pnl: trunc!((capital - initial_capital) / initial_capital * 100.0, 4),
-      win_rate: trunc!(win_rate, 4),
-      total_trades,
-      avg_trade_size: self.avg_quote_trade_size()?,
-      avg_trade_roi: trunc!(avg_quote_pnl, 4),
-      avg_trade_pnl: trunc!(avg_pct_pnl, 4),
-      max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      quote_data: Dataset::new(quote_data),
-      pnl_data: Dataset::new(pnl_data)
-    })
-  }
-
   pub fn wmas(
     &mut self,
     wma_period: usize,
@@ -490,19 +314,20 @@ impl Backtest {
     let data: Dataset = Dataset::new(vec![
       Data {
         x: first.date.to_unix_ms(),
-        y: start_capital
+        y: 0.0
       },
       Data {
         x: last.date.to_unix_ms(),
-        y: start_capital + quote_pnl
+        y: quote_pnl
       }
     ]);
-    
+
     Ok(data.translate(op))
   }
 
   pub fn backtest(
     &mut self,
+    stop_loss: f64,
     wma_period: usize,
     k_rev: f64,
     k_src: Source,
@@ -525,17 +350,50 @@ impl Backtest {
     for candle in candles {
       period.push(candle);
 
-      let signal = dreamrunner.signal(&mut kagi, &period)?;
+      // check stop loss
+      if let Some(trade) = &active_trade {
+        let price = candle.close;
+        let time = candle.date;
+        match trade.side {
+          Order::Long => {
+            let pct_diff = (price - trade.price) / trade.price * 100.0;
+            if pct_diff < stop_loss * -1.0 {
+              let price_at_stop_loss = trade.price * (1.0 - stop_loss / 100.0);
+              let trade = Trade {
+                date: time,
+                side: Order::Short,
+                quantity: trade.quantity,
+                price: price_at_stop_loss,
+              };
+              active_trade = None;
+              self.add_trade(trade);
+            }
+          }
+          Order::Short => {
+            let pct_diff = (price - trade.price) / trade.price * 100.0;
+            if pct_diff > stop_loss {
+              let price_at_stop_loss = trade.price * (1.0 + stop_loss / 100.0);
+              let trade = Trade {
+                date: time,
+                side: Order::Long,
+                quantity: trade.quantity,
+                price: price_at_stop_loss,
+              };
+              active_trade = None;
+              self.add_trade(trade);
+            }
+          }
+        }
+      }
 
+      // place new trade if signal is present
+      let signal = dreamrunner.signal(&mut kagi, &period)?;
       match signal {
         Signal::Long((price, time)) => {
-          match &active_trade {
-            Some(trade) => {
-              if trade.side == Order::Long {
-                continue;
-              }
+          if let Some(trade) = &active_trade {
+            if trade.side == Order::Long {
+              continue;
             }
-            None => ()
           }
           let quantity = capital / price;
           let trade = Trade {
@@ -552,23 +410,98 @@ impl Backtest {
             if trade.side == Order::Short {
               continue;
             }
-            let quantity = capital / price;
-
-            let trade = Trade {
-              date: time,
-              side: Order::Short,
-              quantity,
-              price,
-            };
-            active_trade = Some(trade);
-            self.add_trade(trade);
           }
+          let quantity = capital / price;
+          let trade = Trade {
+            date: time,
+            side: Order::Short,
+            quantity,
+            price,
+          };
+          active_trade = Some(trade);
+          self.add_trade(trade);
         },
         Signal::None => ()
       }
     }
 
     Ok(())
+  }
+
+  /// If compounded, assumes trading profits are 100% reinvested.
+  /// If not compounded, assumed trading with fixed capital (e.g. $1000 every trade) and not reinvesting profits.
+  pub fn summary(&mut self, compound: bool) -> anyhow::Result<Summary> {
+    let mut capital = self.capital;
+    let initial_capital = capital;
+
+    let mut quote = 0.0;
+    let mut cum_pct = Vec::new();
+    let mut cum_quote = Vec::new();
+    let mut pct_per_trade = Vec::new();
+
+    let slice = &mut self.trades.clone()[..];
+    let slice_of_cells: &[Cell<Trade>] = Cell::from_mut(slice).as_slice_of_cells();
+    for trades in slice_of_cells.windows(2) {
+      let exit = &trades[1];
+      let entry = &trades[0];
+      let factor = match entry.get().side {
+        Order::Long => 1.0,
+        Order::Short => -1.0,
+      };
+      let pct_pnl = ((exit.get().price - entry.get().price) / entry.get().price * factor) * 100.0;
+      let mut position_size = match compound {
+        true => capital,
+        false => initial_capital
+      };
+      position_size -= position_size.abs() * (self.fee / 100.0); // take exchange fee on trade entry capital
+      
+      let mut quote_pnl = pct_pnl / 100.0 * position_size;
+      quote_pnl -= quote_pnl.abs() * (self.fee / 100.0); // take exchange fee on trade exit capital
+
+      let quantity = capital / entry.get().price;
+      let updated_entry = Trade {
+        date: entry.get().date,
+        side: entry.get().side,
+        quantity,
+        price: entry.get().price
+      };
+      Cell::swap(entry, &Cell::from(updated_entry));
+
+      capital += quote_pnl;
+      quote += quote_pnl;
+
+      cum_quote.push(Data {
+        x: entry.get().date.to_unix_ms(),
+        y: trunc!(quote, 4)
+      });
+      cum_pct.push(Data {
+        x: entry.get().date.to_unix_ms(),
+        y: trunc!(capital / initial_capital * 100.0 - 100.0, 4)
+      });
+      pct_per_trade.push(Data {
+        x: entry.get().date.to_unix_ms(),
+        y: trunc!(pct_pnl, 4)
+      });
+
+      let quantity = capital / exit.get().price;
+      let updated_exit = Trade {
+        date: exit.get().date,
+        side: exit.get().side,
+        quantity,
+        price: exit.get().price
+      };
+      Cell::swap(exit, &Cell::from(updated_exit));
+    }
+
+    // set self.trades to slice_of_cells
+    self.trades = slice_of_cells.iter().map(|cell| cell.get()).collect();
+
+    Ok(Summary {
+      avg_trade_size: self.avg_quote_trade_size()?,
+      cum_quote: Dataset::new(cum_quote),
+      cum_pct: Dataset::new(cum_pct),
+      pct_per_trade: Dataset::new(pct_per_trade)
+    })
   }
 }
 
@@ -578,16 +511,18 @@ async fn sol_backtest() -> anyhow::Result<()> {
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
 
-  let period = 10;
+  let stop_loss = 2.0;
+  let period = 100;
   let capital = 1_000.0;
   let fee = 0.15;
+  let compound = false;
 
-  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let end_time = Time::new(2023, &Month::from_num(4), &Day::from_num(22), None, None, None);
-  
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
-  
+
+  // let start_time = Time::new(2024, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
@@ -602,41 +537,26 @@ async fn sol_backtest() -> anyhow::Result<()> {
   let wma_period = 4;
 
   backtest.backtest(
+    stop_loss,
     wma_period,
     k_rev,
     k_src,
     ma_src
   )?;
-  let summary = backtest.summary()?;
+  let summary = backtest.summary(compound)?;
 
   println!("==== Dreamrunner Backtest ====");
   summary.print();
 
-  // let closes: Vec<Data> = backtest.candles.iter().map(|candle| {
-  //   Data {
-  //     x: candle.date.to_unix_ms(),
-  //     y: candle.close
-  //   }
-  // }).collect();
-  // let rust_kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
-  // let pine_kagis = csv_series.kagis;
-  // Plot::plot(
-  //   vec![closes, rust_kagis, pine_kagis],
-  //   "kagi_comparison.png",
-  //   "Kagi Comparison",
-  //   "Price"
-  // )?;
-
-  let strategy = summary.quote_data;
   Plot::plot(
-    vec![strategy.0.clone(), backtest.buy_and_hold(&Op::None)?],
+    // vec![summary.cum_pct.0, backtest.buy_and_hold(&Op::None)?],
+    vec![summary.cum_pct.0.clone()],
     "solusdt_30m_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
-    "Equity"
+    "% ROI"
   )?;
 
-  let translated = strategy.translate(&Op::ZScoreMean(period));
-  println!("translated len: {}", translated.len());
+  let translated = summary.pct_per_trade.translate(&Op::ZScoreMean(period));
   if !translated.is_empty() {
     Plot::plot(
       vec![translated],
@@ -655,8 +575,10 @@ async fn eth_backtest() -> anyhow::Result<()> {
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
 
+  let stop_loss = 5.0;
   let capital = 1_000.0;
   let fee = 0.15;
+  let compound = false;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
@@ -676,18 +598,19 @@ async fn eth_backtest() -> anyhow::Result<()> {
   let wma_period = 14;
 
   backtest.backtest(
+    stop_loss,
     wma_period,
     k_rev,
     k_src,
     ma_src
   )?;
-  let summary = backtest.summary()?;
+  let summary = backtest.summary(compound)?;
 
   println!("==== Dreamrunner Backtest ====");
   summary.print();
 
   Plot::plot(
-    vec![summary.quote_data.0, backtest.buy_and_hold(&Op::None)?],
+    vec![summary.cum_quote.0, backtest.buy_and_hold(&Op::None)?],
     "ethusdt_30m_backtest.png",
     "ETH/USDT Dreamrunner Backtest",
     "Equity"
@@ -702,8 +625,10 @@ async fn btc_backtest() -> anyhow::Result<()> {
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
 
+  let stop_loss = 5.0;
   let capital = 1_000.0;
   let fee = 0.15;
+  let compound = false;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
@@ -721,18 +646,19 @@ async fn btc_backtest() -> anyhow::Result<()> {
   let wma_period = 8; // 15
 
   backtest.backtest(
+    stop_loss,
     wma_period,
     k_rev,
     k_src,
     ma_src
   )?;
-  let summary = backtest.summary()?;
+  let summary = backtest.summary(compound)?;
 
   println!("==== Dreamrunner Backtest ====");
   summary.print();
 
   Plot::plot(
-    vec![summary.quote_data.0, backtest.buy_and_hold(&Op::None)?],
+    vec![summary.cum_quote.0, backtest.buy_and_hold(&Op::None)?],
     "btcusdt_30m_backtest.png",
     "BTC/USDT Dreamrunner Backtest",
     "Equity"
@@ -748,6 +674,11 @@ async fn optimize() -> anyhow::Result<()> {
   use rayon::prelude::{IntoParallelIterator, ParallelIterator};
   dotenv::dotenv().ok();
 
+  let stop_loss = 5.0;
+  let capital = 1_000.0;
+  let fee = 0.15;
+  let compound = false;
+
   // let time_series = "solusdt_30m.csv";
   // let k_rev_start = 0.01;
   // let k_rev_step = 0.01;
@@ -762,9 +693,6 @@ async fn optimize() -> anyhow::Result<()> {
   let k_rev_start = 1.0;
   let k_rev_step = 1.0;
   let out_file = "btcusdt_30m_optimal_backtest.png";
-
-  let capital = 1_000.0;
-  let fee = 0.15;
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
@@ -792,12 +720,13 @@ async fn optimize() -> anyhow::Result<()> {
       backtest.candles = csv_series.candles.clone();
       backtest.signals = csv_series.signals.clone();
       backtest.backtest(
+        stop_loss,
         wma_period,
         k_rev,
         k_src,
         ma_src
       )?;
-      let summary = backtest.summary()?;
+      let summary = backtest.summary(compound)?;
       let res = BacktestResult {
         k_rev,
         wma_period,
@@ -809,7 +738,8 @@ async fn optimize() -> anyhow::Result<()> {
   }).flatten().collect();
 
   // sort for highest percent ROI first
-  results.sort_by(|a, b| b.summary.pnl.partial_cmp(&a.summary.pnl).unwrap());
+  results.sort_by(|a, b| b.summary.pct_roi().partial_cmp(&a.summary.pct_roi()).unwrap());
+
   let optimized = results.first().unwrap().clone();
   println!("==== Optimized Backtest ====");
   println!("WMA Period: {}", optimized.wma_period);
@@ -819,7 +749,7 @@ async fn optimize() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.quote_data.0],
+    vec![summary.cum_quote.0],
     out_file,
     "Dreamrunner Backtest",
     "Equity"
