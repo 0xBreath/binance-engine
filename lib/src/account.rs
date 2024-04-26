@@ -4,7 +4,7 @@ use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{Data, Summary, Time, trunc};
+use time_series::{Data, Dataset, Summary, Time, trunc};
 use crate::builder::Klines;
 use crate::trade::TradeInfo;
 
@@ -178,8 +178,8 @@ impl Account {
             avg_trade_roi: trunc!(avg_quote_pnl, 4),
             avg_trade_pnl: trunc!(avg_pct_pnl, 4),
             max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-            quote_data,
-            pnl_data
+            quote_data: Dataset::new(quote_data),
+            pnl_data: Dataset::new(pnl_data)
         })
     }
 

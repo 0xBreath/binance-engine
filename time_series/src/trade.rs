@@ -1,4 +1,4 @@
-use crate::{Data, Time};
+use crate::{Data, Dataset, Time};
 use serde::{Serialize, Deserialize};
 
 #[allow(dead_code)]
@@ -52,8 +52,8 @@ pub struct Summary {
   pub avg_trade_roi: f64,
   pub avg_trade_pnl: f64,
   pub max_pct_drawdown: f64,
-  pub quote_data: Vec<Data>,
-  pub pnl_data: Vec<Data>
+  pub quote_data: Dataset,
+  pub pnl_data: Dataset
 }
 impl Summary {
   pub fn print(&self) {

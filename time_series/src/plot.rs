@@ -1,13 +1,7 @@
 use plotters::prelude::*;
 use plotters::style::full_palette::*;
 use plotters::style::{BLACK, WHITE};
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Data {
-  pub x: i64,
-  pub y: f64,
-}
+use crate::Data;
 
 pub struct Plot;
 

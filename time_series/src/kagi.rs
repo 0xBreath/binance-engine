@@ -13,7 +13,7 @@ pub struct Kagi {
 }
 
 impl Kagi {
-  pub fn update(kagi: &Kagi, rev_amt: f64, candle: &Candle, prev_candle: &Candle) -> Self {
+  pub fn update(kagi: &Kagi, rev_amt: f64, candle: &Candle, _prev_candle: &Candle) -> Self {
     let mut new_kagi = *kagi;
 
     match kagi.direction {

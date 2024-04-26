@@ -2,7 +2,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::cell::Cell;
-use time_series::{Candle, Data, Kagi, KagiDirection, RollingCandles, Signal, Source, Summary, Time, trunc};
+use time_series::{Candle, Data, Dataset, Kagi, KagiDirection, Op, RollingCandles, Signal, Source, Summary, Time, trunc};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -322,8 +322,8 @@ impl Backtest {
       avg_trade_roi: trunc!(avg_quote_pnl, 4),
       avg_trade_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      quote_data,
-      pnl_data
+      quote_data: Dataset::new(quote_data),
+      pnl_data: Dataset::new(pnl_data)
     })
   }
 
@@ -409,8 +409,8 @@ impl Backtest {
       avg_trade_roi: trunc!(avg_quote_pnl, 4),
       avg_trade_pnl: trunc!(avg_pct_pnl, 4),
       max_pct_drawdown: trunc!(max_pct_drawdown, 4),
-      quote_data,
-      pnl_data
+      quote_data: Dataset::new(quote_data),
+      pnl_data: Dataset::new(pnl_data)
     })
   }
 
@@ -474,6 +474,7 @@ impl Backtest {
 
   pub fn buy_and_hold(
     &mut self,
+    op: &Op
   ) -> anyhow::Result<Vec<Data>> {
 
     let start_capital = self.capital;
@@ -486,16 +487,18 @@ impl Backtest {
     let mut quote_pnl = pct_pnl / 100.0 * start_capital;
     quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
 
-    Ok(vec![
+    let data: Dataset = Dataset::new(vec![
       Data {
         x: first.date.to_unix_ms(),
-        y: 0.0
+        y: start_capital
       },
       Data {
         x: last.date.to_unix_ms(),
-        y: quote_pnl
+        y: start_capital + quote_pnl
       }
-    ])
+    ]);
+    
+    Ok(data.translate(op))
   }
 
   pub fn backtest(
@@ -575,12 +578,16 @@ async fn sol_backtest() -> anyhow::Result<()> {
   use time_series::{Day, Month, Plot};
   dotenv::dotenv().ok();
 
+  let period = 10;
   let capital = 1_000.0;
   let fee = 0.15;
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(21), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let end_time = Time::new(2023, &Month::from_num(4), &Day::from_num(22), None, None, None);
+  
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+  
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
@@ -605,27 +612,39 @@ async fn sol_backtest() -> anyhow::Result<()> {
   println!("==== Dreamrunner Backtest ====");
   summary.print();
 
+  // let closes: Vec<Data> = backtest.candles.iter().map(|candle| {
+  //   Data {
+  //     x: candle.date.to_unix_ms(),
+  //     y: candle.close
+  //   }
+  // }).collect();
+  // let rust_kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
+  // let pine_kagis = csv_series.kagis;
+  // Plot::plot(
+  //   vec![closes, rust_kagis, pine_kagis],
+  //   "kagi_comparison.png",
+  //   "Kagi Comparison",
+  //   "Price"
+  // )?;
+
+  let strategy = summary.quote_data;
   Plot::plot(
-    vec![summary.quote_data, backtest.buy_and_hold()?],
+    vec![strategy.0.clone(), backtest.buy_and_hold(&Op::None)?],
     "solusdt_30m_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
     "Equity"
   )?;
 
-  let closes: Vec<Data> = backtest.candles.iter().map(|candle| {
-    Data {
-      x: candle.date.to_unix_ms(),
-      y: candle.close
-    }
-  }).collect();
-  let rust_kagis = backtest.kagis(wma_period, k_rev, k_src, ma_src)?;
-  let pine_kagis = csv_series.kagis;
-  Plot::plot(
-    vec![closes, rust_kagis, pine_kagis],
-    "kagi_comparison.png",
-    "Kagi Comparison",
-    "Price"
-  )?;
+  let translated = strategy.translate(&Op::ZScoreMean(period));
+  println!("translated len: {}", translated.len());
+  if !translated.is_empty() {
+    Plot::plot(
+      vec![translated],
+      "solusdt_30m_translated.png",
+      "SOL/USDT Dreamrunner Translated",
+      "Z Score"
+    )?;
+  }
 
   Ok(())
 }
@@ -668,7 +687,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.quote_data, backtest.buy_and_hold()?],
+    vec![summary.quote_data.0, backtest.buy_and_hold(&Op::None)?],
     "ethusdt_30m_backtest.png",
     "ETH/USDT Dreamrunner Backtest",
     "Equity"
@@ -713,7 +732,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.quote_data, backtest.buy_and_hold()?],
+    vec![summary.quote_data.0, backtest.buy_and_hold(&Op::None)?],
     "btcusdt_30m_backtest.png",
     "BTC/USDT Dreamrunner Backtest",
     "Equity"
@@ -800,7 +819,7 @@ async fn optimize() -> anyhow::Result<()> {
   summary.print();
 
   Plot::plot(
-    vec![summary.quote_data],
+    vec![summary.quote_data.0],
     out_file,
     "Dreamrunner Backtest",
     "Equity"
