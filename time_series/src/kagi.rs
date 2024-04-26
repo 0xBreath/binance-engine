@@ -11,6 +11,14 @@ pub struct Kagi {
   pub direction: KagiDirection,
   pub line: f64
 }
+impl Default for Kagi {
+  fn default() -> Self {
+    Self {
+      direction: KagiDirection::Up,
+      line: 0.0,
+    }
+  }
+}
 
 impl Kagi {
   pub fn update(kagi: &Kagi, rev_amt: f64, candle: &Candle, _prev_candle: &Candle) -> Self {

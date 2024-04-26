@@ -675,6 +675,7 @@ dependencies = [
  "dotenv",
  "lib",
  "log",
+ "playbook",
  "rayon",
  "serde",
  "serde_json",
@@ -1564,6 +1565,26 @@ name = "pkg-config"
 version = "0.3.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d231b230927b5e4ad203db57bbcbee2802f6bce620b1e4a9024a07d94e2907ec"
+
+[[package]]
+name = "playbook"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "crossbeam",
+ "csv",
+ "dotenv",
+ "lib",
+ "log",
+ "rayon",
+ "serde",
+ "serde_json",
+ "simplelog",
+ "time",
+ "time_series",
+ "tokio",
+]
 
 [[package]]
 name = "plotters"

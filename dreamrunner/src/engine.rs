@@ -6,10 +6,10 @@ use serde::de::DeserializeOwned;
 use std::time::SystemTime;
 use crossbeam::channel::Receiver;
 use lib::trade::*;
-use time_series::{trunc, Candle, Time, Signal, RollingCandles, Kagi, KagiDirection};
-use crate::dreamrunner::Dreamrunner;
+use time_series::{trunc, Candle, Time, Signal};
+use playbook::Strategy;
 
-pub struct Engine {
+pub struct Engine<S: Strategy> {
   pub client: Client,
   pub rx: Receiver<WebSocketEvent>,
   pub disable_trading: bool,
@@ -21,14 +21,10 @@ pub struct Engine {
   pub equity_pct: f64,
   pub active_order: ActiveOrder,
   pub assets: Assets,
-  /// Last N candles from current candle.
-  /// 0th index is current candle, Nth index is oldest candle.
-  pub candles: RollingCandles,
-  pub kagi: Kagi,
-  pub dreamrunner: Dreamrunner
+  pub strategy: S
 }
 
-impl Engine {
+impl<S: Strategy> Engine<S> {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     client: Client,
@@ -40,8 +36,7 @@ impl Engine {
     interval: Interval,
     min_notional: f64,
     equity_pct: f64,
-    wma_period: usize,
-    dreamrunner: Dreamrunner,
+    strategy: S,
   ) -> Self {
     Self {
       client: client.clone(),
@@ -55,12 +50,7 @@ impl Engine {
       equity_pct,
       active_order: ActiveOrder::new(),
       assets: Assets::default(),
-      candles: RollingCandles::new(wma_period + 1),
-      kagi: Kagi {
-        direction: KagiDirection::Up,
-        line: 0.0
-      },
-      dreamrunner
+      strategy
     }
   }
 
@@ -78,7 +68,7 @@ impl Engine {
     // if we fetch the entire period, the most recent candle could be old.
     // for example: 15m candles, closed at 1:00pm, we fetch at 1:14pm, we trade using old data.
     // so we fetch one less than the rolling period and wait for the next candle to close to ensure we trade immediately.
-    self.load_recent_candles(Some((self.candles.capacity - 1) as u16)).await?;
+    self.load_recent_candles(Some(self.strategy.candles().capacity as u16)).await?;
 
     info!("🚀 Starting Dreamrunner!");
     while let Ok(event) = self.rx.recv() {
@@ -231,12 +221,9 @@ impl Engine {
   }
 
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
-    // pushes to front of VecDeque and pops the back if at capacity
-    self.candles.push(candle);
-    
     match &self.active_order.entry {
       None => {
-        let signal = self.dreamrunner.signal(&mut self.kagi, &self.candles)?;
+        let signal = self.strategy.process_candle(candle)?;
         if Signal::None != signal {
           info!("{}", signal.print());
           if self.disable_trading {
@@ -550,10 +537,11 @@ impl Engine {
     Ok(klines)
   }
 
+  /// Load recent candles into the strategy's candle cache
   pub async fn load_recent_candles(&mut self, limit: Option<u16>) -> DreamrunnerResult<()> {
     let klines = self.klines(limit, None, None).await?;
     for kline in klines {
-      self.candles.push(kline.to_candle());
+      self.strategy.push_candle(kline.to_candle());
     }
     Ok(())
   }

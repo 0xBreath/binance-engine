@@ -1,17 +1,15 @@
+mod engine;
+mod utils;
+use engine::*;
+use utils::*;
+
 use lib::*;
 use dotenv::dotenv;
 use log::*;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use playbook::Dreamrunner;
 
-mod engine;
-mod utils;
-mod dreamrunner;
-mod backtest;
-use engine::*;
-use utils::*;
-use crate::dreamrunner::Dreamrunner;
 
 // Binance spot TEST network
 pub const BINANCE_TEST_API: &str = "https://testnet.binance.vision";
@@ -33,7 +31,6 @@ async fn main() -> DreamrunnerResult<()> {
   let binance_live_api_key = std::env::var("BINANCE_LIVE_API_KEY")?;
   let binance_live_api_secret = std::env::var("BINANCE_LIVE_API_SECRET")?;
 
-  let wma_period = 4;
   let equity_pct = 90.0;
   let min_notional = 5.0; // $5 USD is the minimum SOL that can be traded
 
@@ -65,12 +62,11 @@ async fn main() -> DreamrunnerResult<()> {
     INTERVAL,
     min_notional,
     equity_pct,
-    wma_period,
-    Dreamrunner::default()
+    Dreamrunner::solusdt_optimized()
   );
-  
+
   let running = Arc::new(AtomicBool::new(true));
-  
+
   let ws_running = running.clone();
   tokio::task::spawn(async move {
     let callback: Callback = Box::new(move |event: WebSocketEvent| {
@@ -88,11 +84,11 @@ async fn main() -> DreamrunnerResult<()> {
       }
     });
     let mut ws = WebSockets::new(testnet, client, callback);
-    
+
     while ws_running.load(Ordering::Relaxed) {
       // reconnect user stream and update listen key
       ws.connect_user_stream().await?;
-      
+
       // reconnect Binance websocket
       let subs = vec![KLINE_STREAM.to_string(), ws.listen_key.clone()];
       match ws.connect_multiple_streams(&subs, testnet).await {
@@ -112,13 +108,13 @@ async fn main() -> DreamrunnerResult<()> {
     warn!("🟡 Shutting down websocket stream");
     ws.disconnect().await?;
     ws.disconnect_user_stream().await?;
-    
+
     DreamrunnerResult::<_>::Ok(())
   });
 
   // start engine that listens to websocket updates (candles, account balance updates, trade updates)
   engine.ignition().await?;
-  
+
   // wait for ctrl-c SIGINT to execute graceful shutdown
   tokio::signal::ctrl_c().await?;
   warn!("🟡 Shutting down Dreamrunner...");
