@@ -135,7 +135,7 @@ impl WebSockets {
 
     pub async fn connect_multiple_streams(&mut self, endpoints: &[String], testnet: bool) -> DreamrunnerResult<()> {
         self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet)).await?;
-        info!("Binance websocket connected");
+        info!("🟢 Reconnected Binance websocket");
         Ok(())
     }
 
@@ -186,7 +186,7 @@ impl WebSockets {
         }
         Ok(())
     }
-    
+
     async fn check_user_stream(&self) -> DreamrunnerResult<()> {
         let now = SystemTime::now();
         let hours_since_ping = now.duration_since(self.last_restart)?.as_secs() / 60 / 60;
@@ -204,7 +204,7 @@ impl WebSockets {
         }
         Ok(())
     }
-    
+
     pub async fn connect_user_stream(&mut self) -> DreamrunnerResult<()> {
         match self.user_stream.start().await {
             Err(e) => {
@@ -239,7 +239,7 @@ impl WebSockets {
         while self.is_connected.load(Ordering::Relaxed) {
             // if user stream is disconnected it will set `is_connected` to false which will break the event loop
             self.check_user_stream().await?;
-            
+
             if let Some(ref mut socket) = self.socket {
                 let now = SystemTime::now();
                 // sending a ping to binance doesn't imply a pong will be received,
@@ -303,7 +303,7 @@ impl WebSockets {
 
 // #![allow(clippy::result_large_err)]
 // #![allow(dead_code)]
-// 
+//
 // use crate::config::Config;
 // use crate::errors::{DreamrunnerError, DreamrunnerResult};
 // use crate::model::{
@@ -320,14 +320,14 @@ impl WebSockets {
 // use tokio_tungstenite::tungstenite::protocol::WebSocket;
 // use tokio_tungstenite::tungstenite::stream::MaybeTlsStream;
 // use tokio_tungstenite::tungstenite::connect;
-// 
+//
 // #[allow(clippy::all)]
 // enum WebSocketAPI {
 //     Default,
 //     MultiStream,
 //     Custom(String),
 // }
-// 
+//
 // impl WebSocketAPI {
 //     fn params(self, subscription: &str, testnet: bool) -> String {
 //         match testnet {
@@ -354,7 +354,7 @@ impl WebSockets {
 //         }
 //     }
 // }
-// 
+//
 // #[allow(clippy::large_enum_variant)]
 // #[derive(Debug, Serialize, Deserialize, Clone)]
 // pub enum WebSocketEvent {
@@ -364,17 +364,17 @@ impl WebSockets {
 //     Trade(TradeEvent),
 //     Kline(KlineEvent),
 // }
-// 
+//
 // pub type Callback<'a> = Box<dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a>;
 // pub type CallbackInner<'a> = dyn FnMut(WebSocketEvent) -> DreamrunnerResult<()> + 'a;
-// 
+//
 // pub struct WebSockets<'a> {
 //     pub socket: Option<(WebSocket<MaybeTlsStream<TcpStream>>, Response)>,
 //     handler: Callback<'a>,
 //     testnet: bool,
 //     last_ping: SystemTime
 // }
-// 
+//
 // impl<'a> Drop for WebSockets<'a> {
 //     fn drop(&mut self) {
 //         info!("Drop websocket");
@@ -384,7 +384,7 @@ impl WebSockets {
 //         self.disconnect().unwrap()
 //     }
 // }
-// 
+//
 // #[derive(Serialize, Deserialize, Debug)]
 // #[serde(untagged)]
 // enum Events {
@@ -394,7 +394,7 @@ impl WebSockets {
 //     Trade(TradeEvent),
 //     Kline(KlineEvent),
 // }
-// 
+//
 // impl<'a> WebSockets<'a> {
 //     pub fn new(testnet: bool, handler: Callback<'a>) -> WebSockets<'a> {
 //         WebSockets {
@@ -404,23 +404,23 @@ impl WebSockets {
 //             last_ping: SystemTime::now()
 //         }
 //     }
-//     
+//
 //     pub fn connect(&mut self, subscription: &str) -> DreamrunnerResult<()> {
 //         self.connect_wss(&WebSocketAPI::Default.params(subscription, self.testnet))
 //     }
-// 
+//
 //     pub fn connect_with_config(&mut self, subscription: &str, config: &Config) -> DreamrunnerResult<()> {
 //         self.connect_wss(
 //             &WebSocketAPI::Custom(config.ws_endpoint.clone()).params(subscription, self.testnet)
 //         )
 //     }
-// 
+//
 //     pub fn connect_multiple_streams(&mut self, endpoints: &[String], testnet: bool) -> DreamrunnerResult<()> {
 //         self.connect_wss(&WebSocketAPI::MultiStream.params(&endpoints.join("/"), testnet))?;
 //         info!("✅ Binance websocket connected");
 //         Ok(())
 //     }
-// 
+//
 //     fn connect_wss(&mut self, wss: &str) -> DreamrunnerResult<()> {
 //         let url = Url::parse(wss)?;
 //         match connect(url) {
@@ -431,7 +431,7 @@ impl WebSockets {
 //             Err(e) => Err(DreamrunnerError::TokioTungstenite(e)),
 //         }
 //     }
-// 
+//
 //     pub fn disconnect(&mut self) -> DreamrunnerResult<()> {
 //         if let Some(ref mut socket) = self.socket {
 //             socket.0.close(None)?;
@@ -439,7 +439,7 @@ impl WebSockets {
 //         }
 //         Err(DreamrunnerError::WebSocketDisconnected)
 //     }
-// 
+//
 //     fn handle_msg(&mut self, msg: &str) -> DreamrunnerResult<()> {
 //         let value: serde_json::Value = serde_json::from_str(msg)?;
 //         if let Some(data) = value.get("data") {
@@ -468,7 +468,7 @@ impl WebSockets {
 //         }
 //         Ok(())
 //     }
-// 
+//
 //     pub fn event_loop(&mut self, running: &AtomicBool) -> DreamrunnerResult<()> {
 //         while running.load(Ordering::Relaxed) {
 //             if let Some(ref mut socket) = self.socket {
@@ -480,7 +480,7 @@ impl WebSockets {
 //                     socket.0.send(Message::Ping(vec![]))?;
 //                     self.last_ping = now;
 //                 }
-//                 
+//
 //                 match socket.0.read()? {
 //                     Message::Text(msg) => match self.handle_msg(&msg) {
 //                         Ok(_) => {}

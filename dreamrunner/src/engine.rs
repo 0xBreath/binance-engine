@@ -100,13 +100,13 @@ impl Engine {
         WebSocketEvent::OrderTrade(event) => {
           let entry_price = trunc!(event.price.parse::<f64>()?, 2);
           info!(
-                "{},  {},  {} @ {}, {}",
-                event.symbol,
-                event.new_client_order_id,
-                event.side,
-                entry_price,
-                event.order_status,
-              );
+            "{},  {},  {} @ {}, {}",
+            event.symbol,
+            event.new_client_order_id,
+            event.side,
+            entry_price,
+            event.order_status,
+          );
           // update state
           self.update_active_order(event)?;
           // create or cancel orders depending on state
@@ -138,10 +138,10 @@ impl Engine {
       Err(e) => {
         let order_type = ActiveOrder::client_order_id_suffix(&trade.client_order_id);
         error!(
-            "🛑 Error entering {} for {}: {:?}",
-            trade.side.fmt_binance(),
-            order_type,
-            e
+          "🛑 Error entering {} for {}: {:?}",
+          trade.side.fmt_binance(),
+          order_type,
+          e
         );
         self.reset_active_order().await?;
         Err(e)
@@ -172,10 +172,9 @@ impl Engine {
   fn long_order(&mut self, price: f64, time: Time) -> DreamrunnerResult<OrderBuilder> {
     let long_qty = self.trade_qty(Side::Long, price)?;
     let limit = trunc!(price, 2);
-    let timestamp = time.to_unix_ms();
     let entry = BinanceTrade::new(
       self.ticker.to_string(),
-      format!("{}-{}", timestamp, "ENTRY"),
+      format!("{}-{}", time.to_unix_ms(), "ENTRY"),
       Side::Long,
       OrderType::Limit,
       long_qty,
@@ -193,10 +192,9 @@ impl Engine {
   fn short_order(&mut self, price: f64, time: Time) -> DreamrunnerResult<OrderBuilder> {
     let short_qty = self.trade_qty(Side::Short, price)?;
     let limit = trunc!(price, 2);
-    let timestamp = time.to_unix_ms();
     let entry = BinanceTrade::new(
       self.ticker.to_string(),
-      format!("{}-{}", timestamp, "ENTRY"),
+      format!("{}-{}", time.to_unix_ms(), "ENTRY"),
       Side::Short,
       OrderType::Limit,
       short_qty,
@@ -241,7 +239,9 @@ impl Engine {
         let signal = self.dreamrunner.signal(&mut self.kagi, &self.candles)?;
         if Signal::None != signal {
           info!("{}", signal.print());
-          if !self.disable_trading {
+          if self.disable_trading {
+            info!("🟡 Trading disabled");
+          } else {
             self.update_assets().await?;
             self.handle_signal(signal).await?;
           }
@@ -253,6 +253,7 @@ impl Engine {
           PendingOrActiveOrder::Pending(order) => {
             let placed_at = Time::from_unix_ms(order.timestamp);
             if Time::now().diff_minutes(&placed_at)? > 10 {
+              info!("🟡 Reset pending order older than 10 minutes");
               self.reset_active_order().await?;
             }
           }
@@ -260,6 +261,7 @@ impl Engine {
             if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
               let placed_at = Time::from_unix_ms(order.event_time);
               if Time::now().diff_minutes(&placed_at)? > 10 {
+                info!("🟡 Reset partially filled order older than 10 minutes");
                 self.reset_active_order().await?;
               }
             }
