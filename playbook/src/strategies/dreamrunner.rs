@@ -1,6 +1,6 @@
 use log::{info, warn};
 use crate::{Strategy};
-use time_series::{Candle, Signal, Source, trunc, RollingCandles, Kagi, Op};
+use time_series::{Candle, Signal, Source, trunc, RollingCandles, Kagi};
 
 #[derive(Debug, Clone)]
 pub struct Dreamrunner {
@@ -71,26 +71,24 @@ impl Dreamrunner {
       warn!("Insufficient candles to generate WMA");
       return Ok(Signal::None);
     }
-
-    // previous candle
-    let c_1 = self.candles.vec[1];
+    
     // current candle
     let c_0 = self.candles.vec[0];
 
     // kagi for previous candle
     let k_1 = self.kagi;
     // kagi for current candle
-    let k_0 = Kagi::update(&self.kagi, self.k_rev, &c_0, &c_1);
+    let k_0 = Kagi::update(&self.kagi, self.k_rev, &c_0);
     self.kagi.line = k_0.line;
     self.kagi.direction = k_0.direction;
-    info!("{:#?}", k_0);
+    info!("kagi: {}", k_0.line);
 
     let period_1: Vec<&Candle> = self.candles.vec.range(1..self.candles.vec.len()).collect();
     let period_0: Vec<&Candle> = self.candles.vec.range(0..self.candles.vec.len() - 1).collect();
 
     let wma_1 = self.wma(&period_1);
     let wma_0 = self.wma(&period_0);
-    info!("WMA: {}", trunc!(wma_0, 3));
+    info!("wma: {}", trunc!(wma_0, 2));
 
     // long if WMA crosses above Kagi and was below Kagi in previous candle
     let long = wma_0 > k_0.line && wma_1 < k_1.line;
@@ -151,55 +149,40 @@ impl Strategy for Dreamrunner {
 #[tokio::test]
 async fn sol_backtest() -> anyhow::Result<()> {
   use super::*;
-  use time_series::{Time};
   use std::path::PathBuf;
-  use time_series::{Day, Month, Plot};
+  use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::solusdt_optimized();
-  let stop_loss = 2.0;
-  let period = 100;
+  // TODO: need minute bars to simulate "ticks" to get accurate backtest with stop loss
+  let stop_loss = 100.0;
   let capital = 1_000.0;
   let fee = 0.15;
-  let compound = false;
+  let compound = true;
+
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
 
-  // let start_time = Time::new(2024, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(22), None, None, None);
-  
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(strategy, capital, fee);
-  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-  backtest.candles = csv_series.candles;
-  backtest.signals = csv_series.signals;
-
-  backtest.backtest(stop_loss)?;
-  let summary = backtest.summary(compound)?;
+  backtest.candles = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?.candles;
 
   println!("==== Dreamrunner Backtest ====");
+  backtest.backtest(stop_loss)?;
+  let summary = backtest.summary(compound)?;
   summary.print();
-
   Plot::plot(
     // vec![summary.cum_pct.0, backtest.buy_and_hold(&Op::None)?],
-    vec![summary.cum_pct.0.clone()],
+    vec![summary.cum_pct.0],
     "solusdt_30m_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
     "% ROI"
   )?;
-
-  let translated = summary.pct_per_trade.translate(&Op::ZScoreMean(period));
-  if !translated.is_empty() {
-    Plot::plot(
-      vec![translated],
-      "solusdt_30m_translated.png",
-      "SOL/USDT Dreamrunner Translated",
-      "Z Score"
-    )?;
-  }
 
   Ok(())
 }
@@ -207,9 +190,8 @@ async fn sol_backtest() -> anyhow::Result<()> {
 #[tokio::test]
 async fn eth_backtest() -> anyhow::Result<()> {
   use super::*;
-  use time_series::{Time};
   use std::path::PathBuf;
-  use time_series::{Day, Month, Plot};
+  use time_series::{Time, Day, Month, Plot, Op};
   use crate::Backtest;
   dotenv::dotenv().ok();
 
@@ -247,9 +229,8 @@ async fn eth_backtest() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn btc_backtest() -> anyhow::Result<()> {
-  use time_series::{Time};
   use std::path::PathBuf;
-  use time_series::{Day, Month, Plot};
+  use time_series::{Time, Day, Month, Plot, Op};
   use crate::Backtest;
   dotenv::dotenv().ok();
 
@@ -287,9 +268,8 @@ async fn btc_backtest() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn optimize() -> anyhow::Result<()> {
-  use time_series::{Summary, Time};
   use std::path::PathBuf;
-  use time_series::{Day, Month, Plot};
+  use time_series::{Time, Day, Month, Plot, Summary};
   use crate::Backtest;
   use rayon::prelude::{IntoParallelIterator, ParallelIterator};
   dotenv::dotenv().ok();
@@ -367,6 +347,120 @@ async fn optimize() -> anyhow::Result<()> {
     out_file,
     "Dreamrunner Backtest",
     "Equity"
+  )?;
+
+  Ok(())
+}
+
+// Tradingview versus Dreamrunner 
+#[tokio::test]
+async fn pine_versus_rust() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, Data, Candle, Signal};
+  use crate::Backtest;
+  dotenv::dotenv().ok();
+  
+  let capital = 1_000.0;
+  let fee = 0.15;
+  let compound = false;
+
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
+
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
+
+  let out_file = "solusdt_30m.csv";
+  let csv = PathBuf::from(out_file);
+  
+  let mut strategy_kagis = vec![];
+  let mut strategy_wmas = vec![];
+  let mut strategy_signals = vec![];
+
+  let mut strategy = Dreamrunner::solusdt_optimized();
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee);
+  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = csv_series.candles;
+  backtest.signals = csv_series.signals;
+  let candles = backtest.candles.clone();
+  for candle in candles {
+    let signal = strategy.process_candle(candle)?;
+
+    match signal {
+      Signal::Long((price, date)) => {
+        strategy_signals.push(Data {
+          x: date.to_unix_ms(),
+          y: price
+        });
+      }
+      Signal::Short((price, date)) => {
+        strategy_signals.push(Data {
+          x: date.to_unix_ms(),
+          y: price
+        });
+      }
+      Signal::None => ()
+    }
+
+    strategy_kagis.push(Data {
+      x: candle.date.to_unix_ms(),
+      y: strategy.kagi.line
+    });
+    let cached_candles: Vec<&Candle> = strategy.candles.vec.range(0..strategy.candles.vec.len() - 1).collect();
+    strategy_wmas.push(Data {
+      x: candle.date.to_unix_ms(),
+      y: strategy.wma(&cached_candles)
+    });
+  }
+  // remove first 4 indices
+  strategy_kagis = strategy_kagis.into_iter().skip(4).collect();
+  strategy_wmas = strategy_wmas.into_iter().skip(4).collect();
+
+  Plot::plot(
+    vec![strategy_kagis, csv_series.kagis],
+    "solusdt_30m_kagis.png",
+    "Kagis",
+    "Price"
+  )?;
+
+  Plot::plot(
+    vec![strategy_wmas, csv_series.wmas],
+    "solusdt_30m_wmas.png",
+    "WMAS",
+    "Price"
+  )?;
+
+  let pine_backtest = backtest.backtest_tradingview(compound)?;
+  Plot::plot(
+    vec![pine_backtest.cum_pct.0],
+    "tradingview_backtest.png",
+    "Tradingview",
+    "Price"
+  )?;
+
+  let pine_signals: Vec<Data> = backtest.signals.iter().flat_map(|s| {
+    match s {
+      Signal::Long((price, date)) => {
+        Some(Data {
+          x: date.to_unix_ms(),
+          y: *price
+        })
+      }
+      Signal::Short((price, date)) => {
+        Some(Data {
+          x: date.to_unix_ms(),
+          y: *price
+        })
+      }
+      Signal::None => None
+    }
+  }).collect();
+  Plot::plot(
+    vec![pine_signals, strategy_signals],
+    "signals.png",
+    "Pine V Rust Signal Comparison",
+    "Signal"
   )?;
 
   Ok(())

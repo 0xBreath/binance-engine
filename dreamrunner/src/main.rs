@@ -117,7 +117,7 @@ async fn main() -> DreamrunnerResult<()> {
 
   // wait for ctrl-c SIGINT to execute graceful shutdown
   tokio::signal::ctrl_c().await?;
-  warn!("🟡 Shutting down Dreamrunner...");
+  warn!("🟡 Shutting down engine...");
   running.store(false, Ordering::Relaxed);
 
   Ok(())

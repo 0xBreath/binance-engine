@@ -76,8 +76,9 @@ impl<S: Strategy> Engine<S> {
         WebSocketEvent::Kline(kline) => {
           // only accept if this candle is at the end of the bar period
           if kline.kline.is_final_bar {
-            info!("{:#?}", kline.kline.info()?);
-            self.process_candle(kline.kline.to_candle()?).await?;
+            let candle = kline.kline.to_candle()?;
+            info!("bar: {}, open: {}", candle.close, candle.date.to_string());
+            self.process_candle(candle).await?;
           }
         }
         WebSocketEvent::AccountUpdate(account_update) => {
@@ -200,9 +201,6 @@ impl<S: Strategy> Engine<S> {
   }
 
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
-    if self.disable_trading {
-      return Ok(());
-    }
     match signal {
       Signal::Long((price, time)) => {
         let order = self.long_order(price, time)?;
@@ -221,9 +219,9 @@ impl<S: Strategy> Engine<S> {
   }
 
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
+    let signal = self.strategy.process_candle(candle)?;
     match &self.active_order.entry {
       None => {
-        let signal = self.strategy.process_candle(candle)?;
         if Signal::None != signal {
           info!("{}", signal.print());
           if self.disable_trading {

@@ -3,7 +3,12 @@
 use crate::{Dataset, Time, trunc};
 use serde::{Serialize, Deserialize};
 
-#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub enum Bet {
+  Static(f64),
+  Percent(f64)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Source {
   Open,

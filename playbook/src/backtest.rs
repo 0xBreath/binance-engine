@@ -2,7 +2,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::cell::Cell;
-use time_series::{Candle, Data, Dataset, Kagi, KagiDirection, Op, RollingCandles, Signal, Source, Summary, Time, trunc};
+use time_series::{Candle, Data, Dataset, Op, Signal, Summary, Time, trunc};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -12,6 +12,8 @@ use crate::Strategy;
 pub struct CsvSeries {
   pub candles: Vec<Candle>,
   pub signals: Vec<Signal>,
+  pub kagis: Vec<Data>,
+  pub wmas: Vec<Data>
 }
 
 
@@ -46,9 +48,9 @@ impl<S: Strategy> Backtest<S> {
       strategy,
       capital,
       fee,
-      candles: Vec::new(),
-      trades: Vec::new(),
-      signals: Vec::new()
+      candles: vec![],
+      trades: vec![],
+      signals: vec![]
     }
   }
 
@@ -65,15 +67,17 @@ impl<S: Strategy> Backtest<S> {
     let file_buffer = File::open(csv_path)?;
     let mut csv = csv::Reader::from_reader(file_buffer);
 
-    let mut headers = Vec::new();
+    let mut headers = vec![];
     if let Ok(result) = csv.headers() {
       for header in result {
         headers.push(String::from(header));
       }
     }
 
-    let mut signals = Vec::new();
-    let mut candles = Vec::new();
+    let mut signals = vec![];
+    let mut candles = vec![];
+    let mut kagis = vec![];
+    let mut wmas = vec![];
 
     for record in csv.records().flatten() {
       let date = Time::from_unix(
@@ -104,6 +108,19 @@ impl<S: Strategy> Backtest<S> {
         };
         signals.push(signal);
       }
+
+      // if Kagi and WMA plots from tradingview dreamrunner script are present,
+      // it assumes they immediately follow the long/short signals as the 7th and 8th indices
+      if let (Ok(kagi), Ok(wma)) = (f64::from_str(&record[7]), f64::from_str(&record[8])) {
+        kagis.push(Data {
+          x: date.to_unix_ms(),
+          y: trunc!(kagi, 3)
+        });
+        wmas.push(Data {
+          x: date.to_unix_ms(),
+          y: trunc!(wma, 3)
+        })
+      }
     }
     // only take candles greater than a timestamp
     candles.retain(|candle| {
@@ -120,10 +137,73 @@ impl<S: Strategy> Backtest<S> {
         (None, None) => true
       }
     });
+    signals.retain(|signal| {
+      match signal {
+        Signal::Long((_, date)) => {
+          match (start_time, end_time) {
+            (Some(start), Some(end)) => {
+              date.to_unix_ms() > start.to_unix_ms() && date.to_unix_ms() < end.to_unix_ms()
+            },
+            (Some(start), None) => {
+              date.to_unix_ms() > start.to_unix_ms()
+            },
+            (None, Some(end)) => {
+              date.to_unix_ms() < end.to_unix_ms()
+            },
+            (None, None) => true
+          }
+        }
+        Signal::Short((_, date)) => {
+          match (start_time, end_time) {
+            (Some(start), Some(end)) => {
+              date.to_unix_ms() > start.to_unix_ms() && date.to_unix_ms() < end.to_unix_ms()
+            },
+            (Some(start), None) => {
+              date.to_unix_ms() > start.to_unix_ms()
+            },
+            (None, Some(end)) => {
+              date.to_unix_ms() < end.to_unix_ms()
+            },
+            (None, None) => true
+          }
+        }
+        Signal::None => false
+      }
+    });
+    kagis.retain(|kagi| {
+      match (start_time, end_time) {
+        (Some(start), Some(end)) => {
+          kagi.x > start.to_unix_ms() && kagi.x < end.to_unix_ms()
+        },
+        (Some(start), None) => {
+          kagi.x > start.to_unix_ms()
+        },
+        (None, Some(end)) => {
+          kagi.x < end.to_unix_ms()
+        },
+        (None, None) => true
+      }
+    });
+    wmas.retain(|wma| {
+      match (start_time, end_time) {
+        (Some(start), Some(end)) => {
+          wma.x > start.to_unix_ms() && wma.x < end.to_unix_ms()
+        },
+        (Some(start), None) => {
+          wma.x > start.to_unix_ms()
+        },
+        (None, Some(end)) => {
+          wma.x < end.to_unix_ms()
+        },
+        (None, None) => true
+      }
+    });
 
     Ok(CsvSeries {
       candles,
       signals,
+      kagis,
+      wmas
     })
   }
 
@@ -146,7 +226,7 @@ impl<S: Strategy> Backtest<S> {
     let mut klines = account.kline_history(days_back).await?;
     klines.sort_by(|a, b| a.open_time.cmp(&b.open_time));
 
-    let mut candles = Vec::new();
+    let mut candles = vec![];
     for kline in klines.into_iter() {
       candles.push(kline.to_candle());
     }
@@ -310,6 +390,93 @@ impl<S: Strategy> Backtest<S> {
     Ok(())
   }
 
+  /// Assumes trading with static position size (e.g. $1000 every trade) and not reinvesting profits.
+  pub fn backtest_tradingview(&self, compound: bool) -> anyhow::Result<Summary> {
+    let mut capital = self.capital;
+    let initial_capital = capital;
+    let signals = &self.signals;
+
+    let mut quote = 0.0;
+    let mut cum_pct = vec![];
+    let mut cum_quote = vec![];
+    let mut pct_per_trade = vec![];
+
+    // filter out None signals
+    let signals = signals.iter().filter(|s| {
+      !matches!(s, Signal::None)
+    }).collect::<Vec<&Signal>>();
+
+    for signals in signals.windows(2) {
+      let entry = &signals[0];
+      let exit = &signals[1];
+      match (entry, exit) {
+        (Signal::Long((entry, entry_date)), Signal::Short((exit, _))) => {
+          let factor = 1.0;
+
+          let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
+          let mut position_size = match compound {
+            true => capital,
+            false => initial_capital
+          };
+          position_size -= position_size.abs() * (self.fee / 100.0); // take exchange fee on trade entry capital
+          let quote_pnl = pct_pnl / 100.0 * position_size;
+          // quote_pnl -= quote_pnl.abs() * (self.fee / 100.0); // take exchange fee on trade exit capital
+
+          capital += quote_pnl;
+          quote += quote_pnl;
+
+          cum_quote.push(Data {
+            x: entry_date.to_unix_ms(),
+            y: trunc!(quote, 4)
+          });
+          cum_pct.push(Data {
+            x: entry_date.to_unix_ms(),
+            y: trunc!(capital / initial_capital * 100.0 - 100.0, 4)
+          });
+          pct_per_trade.push(Data {
+            x: entry_date.to_unix_ms(),
+            y: trunc!(pct_pnl, 4)
+          });
+        },
+        (Signal::Short((entry, entry_date)), Signal::Long((exit, _))) => {
+          let factor = -1.0;
+
+          let pct_pnl = ((exit - entry) / entry * factor) * 100.0;
+          let mut position_size = match compound {
+            true => capital,
+            false => initial_capital
+          };
+          position_size -= position_size.abs() * (self.fee / 100.0); // take exchange fee on trade entry capital
+          let quote_pnl = pct_pnl / 100.0 * position_size;
+
+          capital += quote_pnl;
+          quote += quote_pnl;
+
+          cum_quote.push(Data {
+            x: entry_date.to_unix_ms(),
+            y: trunc!(quote, 4)
+          });
+          cum_pct.push(Data {
+            x: entry_date.to_unix_ms(),
+            y: trunc!(capital / initial_capital * 100.0 - 100.0, 4)
+          });
+          pct_per_trade.push(Data {
+            x: entry_date.to_unix_ms(),
+            y: trunc!(pct_pnl, 4)
+          });
+        },
+        _ => continue
+      }
+    }
+
+    Ok(Summary {
+      avg_trade_size: self.avg_quote_trade_size()?,
+      cum_quote: Dataset::new(cum_quote),
+      cum_pct: Dataset::new(cum_pct),
+      pct_per_trade: Dataset::new(pct_per_trade)
+    })
+  }
+
   /// If compounded, assumes trading profits are 100% reinvested.
   /// If not compounded, assumed trading with fixed capital (e.g. $1000 every trade) and not reinvesting profits.
   pub fn summary(&mut self, compound: bool) -> anyhow::Result<Summary> {
@@ -317,9 +484,9 @@ impl<S: Strategy> Backtest<S> {
     let initial_capital = capital;
 
     let mut quote = 0.0;
-    let mut cum_pct = Vec::new();
-    let mut cum_quote = Vec::new();
-    let mut pct_per_trade = Vec::new();
+    let mut cum_pct = vec![];
+    let mut cum_quote = vec![];
+    let mut pct_per_trade = vec![];
 
     let slice = &mut self.trades.clone()[..];
     let slice_of_cells: &[Cell<Trade>] = Cell::from_mut(slice).as_slice_of_cells();
@@ -337,10 +504,9 @@ impl<S: Strategy> Backtest<S> {
       };
       position_size -= position_size.abs() * (self.fee / 100.0); // take exchange fee on trade entry capital
 
-      let mut quote_pnl = pct_pnl / 100.0 * position_size;
-      quote_pnl -= quote_pnl.abs() * (self.fee / 100.0); // take exchange fee on trade exit capital
+      let quote_pnl = pct_pnl / 100.0 * position_size;
 
-      let quantity = capital / entry.get().price;
+      let quantity = position_size / entry.get().price;
       let updated_entry = Trade {
         date: entry.get().date,
         side: entry.get().side,

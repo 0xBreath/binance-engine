@@ -807,17 +807,18 @@ pub struct KlineInfo {
     pub low: f64,
     pub close: f64,
     pub open_time: String,
+    pub close_time: String
 }
 
 impl KlineStream {
     pub fn info(&self) -> anyhow::Result<KlineInfo> {
-        let open_time = Time::from_unix_ms(self.open_time).to_string();
         Ok(KlineInfo {
             open: self.open.parse::<f64>()?,
             high: self.high.parse::<f64>()?,
             low: self.low.parse::<f64>()?,
             close: self.close.parse::<f64>()?,
-            open_time,
+            open_time: Time::from_unix_ms(self.open_time).to_string(),
+            close_time: Time::from_unix_ms(self.close_time).to_string()
         })
     }
 
