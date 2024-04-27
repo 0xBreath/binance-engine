@@ -74,24 +74,29 @@ impl<S: Strategy> Engine<S> {
     while let Ok(event) = self.rx.recv() {
       match event {
         WebSocketEvent::Kline(kline) => {
+          // cancel active order if not filled within 10 minutes,
+          // or set active order to none if completely fille.
+          // this is called here since kline updates come frequently which is a good way to crank state.
+          self.check_active_order().await?;
+          
           // only accept if this candle is at the end of the bar period
           if kline.kline.is_final_bar {
             let candle = kline.kline.to_candle()?;
-            info!("bar: {}, open: {}", candle.close, candle.date.to_string());
+            info!("Kline update, close price: {}, open time: {}", candle.close, candle.date.to_string());
             self.process_candle(candle).await?;
           }
         }
         WebSocketEvent::AccountUpdate(account_update) => {
           let assets = account_update.assets(&self.quote_asset, &self.base_asset)?;
           info!(
-            "Account Update, {}: {}, {}: {}",
+            "Account update, {}: {}, {}: {}",
             self.quote_asset, assets.free_quote, self.base_asset, assets.free_base
           );
         }
         WebSocketEvent::OrderTrade(event) => {
           let entry_price = trunc!(event.price.parse::<f64>()?, 2);
           info!(
-            "{},  {},  {} @ {}, {}",
+            "Order update, {},  {},  {} @ {}, {}",
             event.symbol,
             event.new_client_order_id,
             event.side,
@@ -100,7 +105,7 @@ impl<S: Strategy> Engine<S> {
           );
           // update state
           self.update_active_order(event)?;
-          // create or cancel orders depending on state
+          // cancel active order if not filled within 10 minutes
           self.check_active_order().await?;
         }
         _ => (),
@@ -232,29 +237,8 @@ impl<S: Strategy> Engine<S> {
           }
         }
       }
-      Some(entry) => {
-        // cancel order if not completely filled within 10 minutes
-        match entry {
-          PendingOrActiveOrder::Pending(order) => {
-            let placed_at = Time::from_unix_ms(order.timestamp);
-            if Time::now().diff_minutes(&placed_at)? > 10 {
-              info!("🟡 Reset pending order older than 10 minutes");
-              self.reset_active_order().await?;
-            }
-          }
-          PendingOrActiveOrder::Active(order) => {
-            if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
-              let placed_at = Time::from_unix_ms(order.event_time);
-              if Time::now().diff_minutes(&placed_at)? > 10 {
-                info!("🟡 Reset partially filled order older than 10 minutes");
-                self.reset_active_order().await?;
-              }
-            }
-          }
-        }
-      }
+      Some(_) => self.check_active_order().await?
     }
-
     Ok(())
   }
 
@@ -413,14 +397,28 @@ impl<S: Strategy> Engine<S> {
     let copy = self.active_order.clone();
     if let Some(entry) = &copy.entry {
       match entry {
-        PendingOrActiveOrder::Active(entry) => {
-          // do nothing, order is active
-          if entry.status == OrderStatus::Filled {
+        PendingOrActiveOrder::Active(order) => {
+          if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
+            let placed_at = Time::from_unix_ms(order.event_time);
+            if Time::now().diff_minutes(&placed_at)? > 10 {
+              info!("🟡 Reset partially filled order older than 10 minutes");
+              self.reset_active_order().await?;
+            }
+          }
+          
+          // if completely filled, set active order to none
+          if order.status == OrderStatus::Filled {
             info!("Order filled: {:#?}", entry);
             self.reset_active_order().await?;
           }
         }
-        PendingOrActiveOrder::Pending(_) => {}
+        PendingOrActiveOrder::Pending(order) => {
+          let placed_at = Time::from_unix_ms(order.timestamp);
+          if Time::now().diff_minutes(&placed_at)? > 10 {
+            info!("🟡 Reset pending order older than 10 minutes");
+            self.reset_active_order().await?;
+          }
+        }
       }
     }
     Ok(())

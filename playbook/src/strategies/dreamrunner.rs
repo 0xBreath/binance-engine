@@ -81,14 +81,13 @@ impl Dreamrunner {
     let k_0 = Kagi::update(&self.kagi, self.k_rev, &c_0);
     self.kagi.line = k_0.line;
     self.kagi.direction = k_0.direction;
-    info!("kagi: {}", k_0.line);
 
     let period_1: Vec<&Candle> = self.candles.vec.range(1..self.candles.vec.len()).collect();
     let period_0: Vec<&Candle> = self.candles.vec.range(0..self.candles.vec.len() - 1).collect();
 
     let wma_1 = self.wma(&period_1);
     let wma_0 = self.wma(&period_0);
-    info!("wma: {}", trunc!(wma_0, 2));
+    info!("kagi: {}, wma: {}", k_0.line, trunc!(wma_0, 2));
 
     // long if WMA crosses above Kagi and was below Kagi in previous candle
     let long = wma_0 > k_0.line && wma_1 < k_1.line;
@@ -155,7 +154,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::solusdt_optimized();
-  // TODO: need minute bars to simulate "ticks" to get accurate backtest with stop loss
+  // TODO: need minute bars to simulate "ticks" to get more accurate backtest with stop loss
   let stop_loss = 100.0;
   let capital = 1_000.0;
   let fee = 0.15;
