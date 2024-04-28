@@ -78,8 +78,6 @@ impl<S: Strategy> Engine<S> {
           // or set active order to none if completely filled.
           // this is called here since kline updates come frequently which is a good way to crank state.
           self.check_active_order().await?;
-          let all_orders = self.all_orders().await?;
-          info!("Recent order? {:#?}", all_orders.first());
 
           // only accept if this candle is at the end of the bar period
           if kline.kline.is_final_bar {
@@ -397,13 +395,14 @@ impl<S: Strategy> Engine<S> {
 
   pub async fn check_active_order(&mut self) -> DreamrunnerResult<()> {
     let copy = self.active_order.clone();
-    info!("Active order: {:#?}", &copy.entry);
     if let Some(entry) = &copy.entry {
       match entry {
         PendingOrActiveOrder::Active(order) => {
           if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
             let placed_at = Time::from_unix_ms(order.event_time);
-            if Time::now().diff_minutes(&placed_at)? > 10 {
+            let now = Time::now();
+            info!("Active order entry: {}, now: {}, stale: {}", placed_at.to_string(), now.to_string(), now.diff_minutes(&placed_at)? > 10);
+            if now.diff_minutes(&placed_at)? > 10 {
               info!("🟡 Reset partially filled order older than 10 minutes");
               self.reset_active_order().await?;
             }
@@ -417,7 +416,9 @@ impl<S: Strategy> Engine<S> {
         }
         PendingOrActiveOrder::Pending(order) => {
           let placed_at = Time::from_unix_ms(order.timestamp);
-          if Time::now().diff_minutes(&placed_at)? > 10 {
+          let now = Time::now();
+          info!("Pending order entry: {}, now: {}, stale: {}", placed_at.to_string(), Time::now().to_string(), now.diff_minutes(&placed_at)? > 10);
+          if now.diff_minutes(&placed_at)? > 10 {
             info!("🟡 Reset pending order older than 10 minutes");
             self.reset_active_order().await?;
           }
