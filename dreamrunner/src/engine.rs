@@ -75,10 +75,12 @@ impl<S: Strategy> Engine<S> {
       match event {
         WebSocketEvent::Kline(kline) => {
           // cancel active order if not filled within 10 minutes,
-          // or set active order to none if completely fille.
+          // or set active order to none if completely filled.
           // this is called here since kline updates come frequently which is a good way to crank state.
           self.check_active_order().await?;
-          
+          let all_orders = self.all_orders().await?;
+          info!("Recent order? {:#?}", all_orders.first());
+
           // only accept if this candle is at the end of the bar period
           if kline.kline.is_final_bar {
             let candle = kline.kline.to_candle()?;
@@ -116,8 +118,8 @@ impl<S: Strategy> Engine<S> {
   }
 
   #[allow(dead_code)]
-  pub async fn exchange_info(&self, symbol: String) -> DreamrunnerResult<ExchangeInformation> {
-    let req = ExchangeInfo::request(symbol);
+  pub async fn exchange_info(&self) -> DreamrunnerResult<ExchangeInformation> {
+    let req = ExchangeInfo::request(self.ticker.clone());
     self.client
         .get::<ExchangeInformation>(API::Spot(Spot::ExchangeInfo), Some(req)).await
   }
@@ -243,6 +245,7 @@ impl<S: Strategy> Engine<S> {
   }
 
   pub async fn reset_active_order(&mut self) -> DreamrunnerResult<Vec<OrderCanceled>> {
+    info!("🟡 Resetting active order");
     self.active_order.reset();
     self.cancel_all_open_orders().await
   }
@@ -298,9 +301,8 @@ impl<S: Strategy> Engine<S> {
   }
 
   /// Get historical orders for a single symbol
-  #[allow(dead_code)]
-  pub async fn all_orders(&self, symbol: String) -> DreamrunnerResult<Vec<HistoricalOrder>> {
-    let req = AllOrders::request(symbol, Some(5000));
+  pub async fn all_orders(&self) -> DreamrunnerResult<Vec<HistoricalOrder>> {
+    let req = AllOrders::request(self.ticker.clone(), Some(5000));
     let mut orders = self
       .client
       .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
@@ -312,8 +314,8 @@ impl<S: Strategy> Engine<S> {
   /// Get last open trade for a single symbol
   /// Returns Some if there is an open trade, None otherwise
   #[allow(dead_code)]
-  pub async fn open_orders(&self, symbol: String) -> DreamrunnerResult<Vec<HistoricalOrder>> {
-    let req = AllOrders::request(symbol, Some(5000));
+  pub async fn open_orders(&self) -> DreamrunnerResult<Vec<HistoricalOrder>> {
+    let req = AllOrders::request(self.ticker.clone(), Some(5000));
     let orders = self
       .client
       .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
@@ -327,7 +329,7 @@ impl<S: Strategy> Engine<S> {
 
   /// Cancel all open orders for a single symbol
   pub async fn cancel_all_open_orders(&self) -> DreamrunnerResult<Vec<OrderCanceled>> {
-    info!("Canceling all active orders");
+    info!("🟡 Canceling all active orders");
     let req = CancelOrders::request(self.ticker.clone(), Some(10000));
     let res = self
       .client
@@ -395,6 +397,7 @@ impl<S: Strategy> Engine<S> {
 
   pub async fn check_active_order(&mut self) -> DreamrunnerResult<()> {
     let copy = self.active_order.clone();
+    info!("Active order: {:#?}", &copy.entry);
     if let Some(entry) = &copy.entry {
       match entry {
         PendingOrActiveOrder::Active(order) => {
@@ -405,7 +408,7 @@ impl<S: Strategy> Engine<S> {
               self.reset_active_order().await?;
             }
           }
-          
+
           // if completely filled, set active order to none
           if order.status == OrderStatus::Filled {
             info!("Order filled: {:#?}", entry);

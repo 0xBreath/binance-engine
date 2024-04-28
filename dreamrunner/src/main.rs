@@ -93,13 +93,13 @@ async fn main() -> DreamrunnerResult<()> {
       let subs = vec![KLINE_STREAM.to_string(), ws.listen_key.clone()];
       match ws.connect_multiple_streams(&subs, testnet).await {
         Err(e) => {
-          error!("🛑Failed to connect websocket: {}", e);
+          error!("🛑 Failed to connect websocket: {}", e);
         }
         Ok(_) => {
           // if user stream is disconnected it will set `is_connected` to false which will break the event loop.
           // then this outer while loop will literate and reconnect the user stream and websocket
           match ws.event_loop().await {
-            Err(e) => error!("🛑Websocket error: {:#?}", e),
+            Err(e) => error!("🛑 Websocket error: {:#?}", e),
             Ok(_) => warn!("🟡 Websocket needs to reconnect")
           }
         }

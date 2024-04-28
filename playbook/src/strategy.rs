@@ -1,4 +1,4 @@
-use time_series::{Signal, RollingCandles, Candle};
+use time_series::{Signal, CandleCache, Candle};
 
 pub trait Strategy: Clone {
   /// Receives new candle and returns a signal (long, short, or do nothing).
@@ -6,5 +6,5 @@ pub trait Strategy: Clone {
   /// Appends a candle to the candle cache
   fn push_candle(&mut self, candle: Candle);
   /// Returns a reference to the candle cache
-  fn candles(&self) -> &RollingCandles;
+  fn candles(&self) -> &CandleCache;
 }

@@ -38,16 +38,20 @@ pub struct Backtest<S: Strategy> {
   pub capital: f64,
   /// Fee in percentage
   pub fee: f64,
+  pub compound: bool,
+  pub leverage: u8,
   pub candles: Vec<Candle>,
   pub trades: Vec<Trade>,
   pub signals: Vec<Signal>
 }
 impl<S: Strategy> Backtest<S> {
-  pub fn new(strategy: S, capital: f64, fee: f64) -> Self {
+  pub fn new(strategy: S, capital: f64, fee: f64, compound: bool, leverage: u8) -> Self {
     Self {
       strategy,
       capital,
       fee,
+      compound,
+      leverage,
       candles: vec![],
       trades: vec![],
       signals: vec![]
@@ -277,29 +281,22 @@ impl<S: Strategy> Backtest<S> {
     &mut self,
     op: &Op
   ) -> anyhow::Result<Vec<Data>> {
-
-    let start_capital = self.capital;
-
     let candles = self.candles.clone();
     let first = candles.first().unwrap();
-    let last = candles.last().unwrap();
+    let mut data = vec![];
+    
+    for candles in candles.windows(2) {
+      let entry = candles[0];
+      let exit = candles[1];
+      let pct_pnl = ((exit.close - first.close) / first.close) * 100.0;
+      
+      data.push(Data {
+        x: entry.date.to_unix_ms(),
+        y: pct_pnl
+      });
+    }
 
-    let pct_pnl = ((last.close - first.close) / first.close) * 100.0;
-    let mut quote_pnl = pct_pnl / 100.0 * start_capital;
-    quote_pnl -= quote_pnl.abs() * self.fee / 100.0;
-
-    let data: Dataset = Dataset::new(vec![
-      Data {
-        x: first.date.to_unix_ms(),
-        y: 0.0
-      },
-      Data {
-        x: last.date.to_unix_ms(),
-        y: quote_pnl
-      }
-    ]);
-
-    Ok(data.translate(op))
+    Ok(Dataset::new(data).translate(op))
   }
 
   pub fn backtest(
@@ -314,10 +311,10 @@ impl<S: Strategy> Backtest<S> {
 
       // check stop loss
       if let Some(trade) = &active_trade {
-        let price = candle.close;
         let time = candle.date;
         match trade.side {
           Order::Long => {
+            let price = candle.low;
             let pct_diff = (price - trade.price) / trade.price * 100.0;
             if pct_diff < stop_loss * -1.0 {
               let price_at_stop_loss = trade.price * (1.0 - stop_loss / 100.0);
@@ -332,6 +329,7 @@ impl<S: Strategy> Backtest<S> {
             }
           }
           Order::Short => {
+            let price = candle.high;
             let pct_diff = (price - trade.price) / trade.price * 100.0;
             if pct_diff > stop_loss {
               let price_at_stop_loss = trade.price * (1.0 + stop_loss / 100.0);
@@ -478,9 +476,9 @@ impl<S: Strategy> Backtest<S> {
   }
 
   /// If compounded, assumes trading profits are 100% reinvested.
-  /// If not compounded, assumed trading with fixed capital (e.g. $1000 every trade) and not reinvesting profits.
-  pub fn summary(&mut self, compound: bool) -> anyhow::Result<Summary> {
-    let mut capital = self.capital;
+  /// If not compounded, assumed trading with initial capital (e.g. $1000 every trade) and not reinvesting profits.
+  pub fn summary(&mut self) -> anyhow::Result<Summary> {
+    let mut capital = self.capital * self.leverage as f64;
     let initial_capital = capital;
 
     let mut quote = 0.0;
@@ -498,14 +496,11 @@ impl<S: Strategy> Backtest<S> {
         Order::Short => -1.0,
       };
       let pct_pnl = ((exit.get().price - entry.get().price) / entry.get().price * factor) * 100.0;
-      let mut position_size = match compound {
+      let position_size = match self.compound {
         true => capital,
         false => initial_capital
       };
-      position_size -= position_size.abs() * (self.fee / 100.0); // take exchange fee on trade entry capital
-
-      let quote_pnl = pct_pnl / 100.0 * position_size;
-
+      
       let quantity = position_size / entry.get().price;
       let updated_entry = Trade {
         date: entry.get().date,
@@ -514,6 +509,15 @@ impl<S: Strategy> Backtest<S> {
         price: entry.get().price
       };
       Cell::swap(entry, &Cell::from(updated_entry));
+      
+      // fee on trade entry capital
+      let entry_fee = position_size.abs() * (self.fee / 100.0);
+      capital -= entry_fee;
+      
+      // fee on profit made
+      let mut quote_pnl = pct_pnl / 100.0 * position_size;
+      let profit_fee = quote_pnl.abs() * (self.fee / 100.0);
+      quote_pnl -= profit_fee;
 
       capital += quote_pnl;
       quote += quote_pnl;

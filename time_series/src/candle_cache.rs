@@ -2,11 +2,11 @@ use std::collections::VecDeque;
 use crate::Candle;
 
 #[derive(Debug, Clone)]
-pub struct RollingCandles {
+pub struct CandleCache {
   pub vec: VecDeque<Candle>,
   pub capacity: usize,
 }
-impl RollingCandles {
+impl CandleCache {
   pub fn new(capacity: usize) -> Self {
     Self {
       vec: VecDeque::with_capacity(capacity),
@@ -19,5 +19,9 @@ impl RollingCandles {
       self.vec.pop_back();
     }
     self.vec.push_front(candle);
+  }
+  
+  pub fn recent(&self) -> Option<&Candle> {
+    self.vec.front()
   }
 }
