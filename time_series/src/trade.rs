@@ -130,21 +130,22 @@ impl Summary {
   }
 
   pub fn max_drawdown(&self) -> f64 {
-    let mut max_drawdown = 0.0;
+    let mut max_dd = 0.0;
     let mut peak = self.cum_quote.data().first().unwrap().y;
-    for d in self.cum_quote.data().iter() {
-      if d.y > peak {
-        peak = d.y;
-      }
-      let drawdown = d.y - peak;
-      if drawdown < max_drawdown {
-        max_drawdown = drawdown;
+
+    for point in self.cum_quote.data().iter() {
+      if point.y > peak {
+        peak = point.y;
+      } else {
+        // -200 - 1400 = = -1600 / 1400 * 100 = -114.29%
+        let dd = ((point.y - peak) / peak * 100.0).max(-100.0);
+        if dd < max_dd {
+          max_dd = dd;
+          println!("dd: {}, peak: {}, trough: {}", trunc!(max_dd, 2), peak, point.y);
+        }
       }
     }
-    // convert the quote ($) to pct relative to the peak
-    // -200 / 300 = -0.6666666666666666 * 100 = -66.67%
-    let max_drawdown = max_drawdown / peak * 100.0;
-    trunc!(max_drawdown, 2)
+    trunc!(max_dd, 2)
   }
 
   pub fn avg_trade(&self) -> f64 {

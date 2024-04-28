@@ -155,25 +155,18 @@ async fn sol_backtest() -> anyhow::Result<()> {
   use crate::Backtest;
   dotenv::dotenv().ok();
 
-  // let strategy = Dreamrunner::solusdt_optimized();
-  let ma_period = 13;
-  let strategy = Dreamrunner::new(
-    8.0,
-    Source::Close,
-    Source::Open,
-    ma_period
-  );
+  let strategy = Dreamrunner::solusdt_optimized();
   let stop_loss = 100.0;
   let capital = 1_000.0;
   let fee = 0.01;
   let compound = true;
   let leverage = 1;
 
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
 
-  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
@@ -192,7 +185,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   )?;
 
 
-  println!("==== Dreamrunner Strategy ====");
+  // ==== Dreamrunner Strategy ====
   let mut strategy_kagis = vec![];
   let mut strategy_wmas = vec![];
   let mut strategy_signals = vec![];
@@ -233,8 +226,8 @@ async fn sol_backtest() -> anyhow::Result<()> {
     });
   }
   // remove first indices
-  strategy_kagis = strategy_kagis.into_iter().skip(ma_period).collect();
-  strategy_wmas = strategy_wmas.into_iter().skip(ma_period).collect();
+  strategy_kagis = strategy_kagis.into_iter().skip(4).collect();
+  strategy_wmas = strategy_wmas.into_iter().skip(4).collect();
 
   let closes = Dataset::new(backtest.candles.iter().map(|c| {
     Data {
@@ -400,9 +393,7 @@ async fn optimize() -> anyhow::Result<()> {
   }).flatten().collect();
 
   // sort for highest percent ROI first
-  // results.sort_by(|a, b| b.summary.pct_roi().partial_cmp(&a.summary.pct_roi()).unwrap());
-  // sort for lowest max drawdown first
-  results.sort_by(|a, b| b.summary.max_drawdown().partial_cmp(&a.summary.max_drawdown()).unwrap());
+  results.sort_by(|a, b| b.summary.pct_roi().partial_cmp(&a.summary.pct_roi()).unwrap());
 
   let optimized = results.first().unwrap().clone();
   println!("==== Optimized Backtest ====");

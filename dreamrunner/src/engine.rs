@@ -401,7 +401,12 @@ impl<S: Strategy> Engine<S> {
           if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
             let placed_at = Time::from_unix_ms(order.event_time);
             let now = Time::now();
-            info!("Active order entry: {}, now: {}, stale: {}", placed_at.to_string(), now.to_string(), placed_at.diff_minutes(&now)? > 10);
+            debug!(
+              "Active order entry: {}, now: {}, stale: {}", 
+              placed_at.to_string(), 
+              now.to_string(), 
+              placed_at.diff_minutes(&now)? > 10
+            );
             if placed_at.diff_minutes(&now)?.abs() > 10 {
               info!("🟡 Reset partially filled order older than 10 minutes");
               self.reset_active_order().await?;
@@ -417,7 +422,12 @@ impl<S: Strategy> Engine<S> {
         PendingOrActiveOrder::Pending(order) => {
           let placed_at = Time::from_unix_ms(order.timestamp);
           let now = Time::now();
-          info!("Pending order entry: {}, now: {}, stale: {}", placed_at.to_string(), Time::now().to_string(), placed_at.diff_minutes(&now)? > 10);
+          debug!(
+            "Pending order entry: {}, now: {}, stale: {}", 
+            placed_at.to_string(), 
+            Time::now().to_string(),
+            placed_at.diff_minutes(&now)? > 10
+          );
           if placed_at.diff_minutes(&now)?.abs() > 10 {
             info!("🟡 Reset pending order older than 10 minutes");
             self.reset_active_order().await?;
