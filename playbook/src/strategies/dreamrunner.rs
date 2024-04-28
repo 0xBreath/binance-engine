@@ -155,23 +155,29 @@ async fn sol_backtest() -> anyhow::Result<()> {
   use crate::Backtest;
   dotenv::dotenv().ok();
 
-  let strategy = Dreamrunner::solusdt_optimized();
-  // TODO: need minute bars to simulate "ticks" to get more accurate backtest with stop loss
-  let stop_loss = 1.0;
+  // let strategy = Dreamrunner::solusdt_optimized();
+  let ma_period = 13;
+  let strategy = Dreamrunner::new(
+    8.0,
+    Source::Close,
+    Source::Open,
+    ma_period
+  );
+  let stop_loss = 100.0;
   let capital = 1_000.0;
   let fee = 0.01;
   let compound = true;
   let leverage = 1;
 
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage);
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
   backtest.candles = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?.candles;
 
   println!("==== Dreamrunner Backtest ====");
@@ -186,16 +192,61 @@ async fn sol_backtest() -> anyhow::Result<()> {
   )?;
 
 
-  println!("==== Dreamrunner Trade Z Scores ====");
+  println!("==== Dreamrunner Strategy ====");
+  let mut strategy_kagis = vec![];
+  let mut strategy_wmas = vec![];
+  let mut strategy_signals = vec![];
 
-  let period = 30;
-  let data = summary.pct_per_trade.translate(&Op::ZScoreMean(period));
+  let mut strategy = strategy.clone();
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
+  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
+  backtest.candles = csv_series.candles;
+  backtest.signals = csv_series.signals;
+  let candles = backtest.candles.clone();
+  for candle in candles {
+    let signal = strategy.process_candle(candle)?;
 
+    match signal {
+      Signal::Long((price, date)) => {
+        strategy_signals.push(Data {
+          x: date.to_unix_ms(),
+          y: price
+        });
+      }
+      Signal::Short((price, date)) => {
+        strategy_signals.push(Data {
+          x: date.to_unix_ms(),
+          y: price
+        });
+      }
+      Signal::None => ()
+    }
+
+    strategy_kagis.push(Data {
+      x: candle.date.to_unix_ms(),
+      y: strategy.kagi.line
+    });
+    let cached_candles: Vec<&Candle> = strategy.candles.vec.range(0..strategy.candles.vec.len() - 1).collect();
+    strategy_wmas.push(Data {
+      x: candle.date.to_unix_ms(),
+      y: strategy.wma(&cached_candles)
+    });
+  }
+  // remove first indices
+  strategy_kagis = strategy_kagis.into_iter().skip(ma_period).collect();
+  strategy_wmas = strategy_wmas.into_iter().skip(ma_period).collect();
+
+  let closes = Dataset::new(backtest.candles.iter().map(|c| {
+    Data {
+      x: c.date.to_unix_ms(),
+      y: c.close
+    }
+  }).collect());
   Plot::plot(
-    vec![data],
-    "solusdt_30m_dreamrunner_backtest_zscore.png",
-    "SOL/USDT Dreamrunner Trade Z Scores",
-    "% ROI"
+    vec![strategy_kagis, strategy_wmas, closes.0],
+    "solusdt_30m_dreamrunner_strategy.png",
+    "Dreamrunner Strategy",
+    "Price"
   )?;
 
   Ok(())
@@ -290,17 +341,17 @@ async fn optimize() -> anyhow::Result<()> {
   use rayon::prelude::{IntoParallelIterator, ParallelIterator};
   dotenv::dotenv().ok();
 
-  let stop_loss = 5.0;
+  let stop_loss = 100.0;
   let capital = 1_000.0;
-  let fee = 0.15;
-  let compound = false;
+  let fee = 0.01;
+  let compound = true;
   let leverage = 1;
 
-  // let strategy = Dreamrunner::solusdt_optimized();
-  // let time_series = "solusdt_30m.csv";
-  // let k_rev_start = 0.01;
-  // let k_rev_step = 0.01;
-  // let out_file = "solusdt_30m_optimal_backtest.png";
+  let strategy = Dreamrunner::solusdt_optimized();
+  let time_series = "solusdt_30m.csv";
+  let k_rev_start = 0.02;
+  let k_rev_step = 0.01;
+  let out_file = "solusdt_30m_optimal_backtest.png";
 
   // let strategy = Dreamrunner::ethusdt_optimized();
   // let time_series = "ethusdt_30m.csv";
@@ -308,14 +359,14 @@ async fn optimize() -> anyhow::Result<()> {
   // let k_rev_step = 0.1;
   // let out_file = "ethusdt_30m_optimal_backtest.png";
 
-  let strategy = Dreamrunner::btcusdt_optimized();
-  let time_series = "btcusdt_30m.csv";
-  let k_rev_start = 1.0;
-  let k_rev_step = 1.0;
-  let out_file = "btcusdt_30m_optimal_backtest.png";
+  // let strategy = Dreamrunner::btcusdt_optimized();
+  // let time_series = "btcusdt_30m.csv";
+  // let k_rev_start = 1.0;
+  // let k_rev_step = 1.0;
+  // let out_file = "btcusdt_30m_optimal_backtest.png";
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
 
   let csv = PathBuf::from(time_series);
   let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
@@ -328,10 +379,10 @@ async fn optimize() -> anyhow::Result<()> {
     pub summary: Summary
   }
 
-  let mut results: Vec<BacktestResult> = (0..5000).collect::<Vec<usize>>().into_par_iter().flat_map(|i| {
+  let mut results: Vec<BacktestResult> = (0..1_000).collect::<Vec<usize>>().into_par_iter().flat_map(|i| {
     let k_rev = trunc!(k_rev_start + (i as f64 * k_rev_step), 4);
 
-    let results: Vec<BacktestResult> = (0..15).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
+    let results: Vec<BacktestResult> = (0..20).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
       let wma_period = j + 1;
       let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
       backtest.candles = csv_series.candles.clone();
@@ -349,21 +400,23 @@ async fn optimize() -> anyhow::Result<()> {
   }).flatten().collect();
 
   // sort for highest percent ROI first
-  results.sort_by(|a, b| b.summary.pct_roi().partial_cmp(&a.summary.pct_roi()).unwrap());
+  // results.sort_by(|a, b| b.summary.pct_roi().partial_cmp(&a.summary.pct_roi()).unwrap());
+  // sort for lowest max drawdown first
+  results.sort_by(|a, b| b.summary.max_drawdown().partial_cmp(&a.summary.max_drawdown()).unwrap());
 
   let optimized = results.first().unwrap().clone();
   println!("==== Optimized Backtest ====");
   println!("WMA Period: {}", optimized.wma_period);
   println!("Kagi Rev: {}", optimized.k_rev);
   let summary = optimized.summary;
-
   summary.print();
-
+  
+  backtest.candles = csv_series.candles;
   Plot::plot(
-    vec![summary.cum_quote.0],
+    vec![summary.cum_pct.0, backtest.buy_and_hold(&Op::None)?],
     out_file,
-    "Dreamrunner Backtest",
-    "Equity"
+    "Dreamrunner Optimal Backtest",
+    "% ROI"
   )?;
 
   Ok(())
@@ -520,67 +573,6 @@ async fn solusdt_zscore() -> anyhow::Result<()> {
     "solusdt_30m_zscore.png",
     "SOL/USDT Z Score",
     "Z Score"
-  )?;
-
-  Ok(())
-}
-
-/// Evidence that the original Tradingview pine script Dreamrunner strategy repaints (future data used in the present),
-/// which leads to a higher ROI than the Rust implementation.
-#[tokio::test]
-async fn tradingview_repaint() -> anyhow::Result<()> {
-  use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Data, Candle, Signal};
-  use crate::Backtest;
-  dotenv::dotenv().ok();
-
-  let capital = 1_000.0;
-  let fee = 0.0;
-  let compound = false;
-  let leverage = 1;
-
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
-
-  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
-
-  let out_file = "solusdt_30m_old.csv";
-  let csv = PathBuf::from(out_file);
-
-  let strategy = Dreamrunner::solusdt_optimized();
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage);
-  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-
-  let closes = Dataset::new(csv_series.candles.iter().map(|c| {
-    Data {
-      x: c.date.to_unix_ms(),
-      y: c.close
-    }
-  }).collect());
-  let pine_signals: Vec<Data> = backtest.signals.iter().flat_map(|s| {
-    match s {
-      Signal::Long((price, date)) => {
-        Some(Data {
-          x: date.to_unix_ms(),
-          y: *price
-        })
-      }
-      Signal::Short((price, date)) => {
-        Some(Data {
-          x: date.to_unix_ms(),
-          y: *price
-        })
-      }
-      Signal::None => None
-    }
-  }).collect();
-  Plot::plot(
-    vec![csv_series.kagis, closes.0, pine_signals],
-    "tradingview_repaint.png",
-    "Tradingview Dreamrunner Repaint",
-    "Price"
   )?;
 
   Ok(())

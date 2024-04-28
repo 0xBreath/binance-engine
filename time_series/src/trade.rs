@@ -131,8 +131,8 @@ impl Summary {
 
   pub fn max_drawdown(&self) -> f64 {
     let mut max_drawdown = 0.0;
-    let mut peak = self.cum_pct.data().first().unwrap().y;
-    for d in self.cum_pct.data().iter() {
+    let mut peak = self.cum_quote.data().first().unwrap().y;
+    for d in self.cum_quote.data().iter() {
       if d.y > peak {
         peak = d.y;
       }
@@ -143,7 +143,6 @@ impl Summary {
     }
     // convert the quote ($) to pct relative to the peak
     // -200 / 300 = -0.6666666666666666 * 100 = -66.67%
-    println!("drawdown: {}, peak: {}", max_drawdown, peak);
     let max_drawdown = max_drawdown / peak * 100.0;
     trunc!(max_drawdown, 2)
   }
