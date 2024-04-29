@@ -162,11 +162,11 @@ async fn sol_backtest() -> anyhow::Result<()> {
   let compound = true;
   let leverage = 1;
 
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(16), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(28), None, None, None);
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(28), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);

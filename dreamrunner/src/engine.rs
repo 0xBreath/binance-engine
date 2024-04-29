@@ -80,8 +80,9 @@ impl<S: Strategy> Engine<S> {
           // or set active order to none if completely filled.
           // this is called here since kline updates come frequently which is a good way to crank state.
           let kline_date = kline.kline.to_candle()?.date;
-          // check if date lands on 5m intervals within an hour (0, 5, 10, 15, 20, 25, ...)
-          if kline_date.to_datetime()?.minute() % 5 == 0 {
+          // check if date lands on 1m intervals within an hour.
+          // if we check on every kline (every second) we risk being rate limited by Binance.
+          if kline_date.to_datetime()?.second() == 0 {
             self.check_active_order().await?;
           }
 
@@ -409,7 +410,13 @@ impl<S: Strategy> Engine<S> {
             .find(|o| &o.client_order_id == id);
           match actual_order {
             None => {
-              error!("Active order is missing from historical orders: {:#?}", entry);
+              if order.status == OrderStatus::New {
+                // seeming race condition where new order is streamed over websocket 
+                // before API can return it in historical orders request
+                warn!("NEW Active order is missing from historical orders: {:#?}", entry);
+              } else {
+                error!("Active order is missing from historical orders: {:#?}", entry);
+              }
             }
             Some(actual_order) => {
               let actual_order = TradeInfo::from_historical_order(&actual_order)?;
