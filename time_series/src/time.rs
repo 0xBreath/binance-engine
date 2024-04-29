@@ -190,6 +190,7 @@ impl Time {
         let day = &date[(month_delim + 5)..];
         Time::new(year, &month, &Day::from_string(day), None, None, None)
     }
+    
     /// Convert `chrono::DateTime` to `Time`
     pub fn now() -> Self {
         let date = chrono::Utc::now();
@@ -201,6 +202,7 @@ impl Time {
         let second = date.naive_utc().second();
         Time::new(year, &month, &day, Some(hour), Some(minute), Some(second))
     }
+    
     /// Increment Time by a number of days
     pub fn delta_date(&self, days: i64) -> Self {
         let chrono_date =

@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
+use std::str::FromStr;
 use lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
+use chrono::Timelike;
 use crossbeam::channel::Receiver;
 use lib::trade::*;
 use time_series::{trunc, Candle, Time, Signal};
@@ -77,7 +79,11 @@ impl<S: Strategy> Engine<S> {
           // cancel active order if not filled within 10 minutes,
           // or set active order to none if completely filled.
           // this is called here since kline updates come frequently which is a good way to crank state.
-          self.check_active_order().await?;
+          let kline_date = kline.kline.to_candle()?.date;
+          // check if date lands on 5m intervals within an hour (0, 5, 10, 15, 20, 25, ...)
+          if kline_date.to_datetime()?.minute() % 5 == 0 {
+            self.check_active_order().await?;
+          }
 
           // only accept if this candle is at the end of the bar period
           if kline.kline.is_final_bar {
@@ -104,7 +110,7 @@ impl<S: Strategy> Engine<S> {
             event.order_status,
           );
           // update state
-          self.update_active_order(event)?;
+          self.update_active_order(TradeInfo::from_order_trade_event(&event)?)?;
           // cancel active order if not filled within 10 minutes
           self.check_active_order().await?;
         }
@@ -365,17 +371,14 @@ impl<S: Strategy> Engine<S> {
     res
   }
 
-  pub fn update_active_order(&mut self, event: OrderTradeEvent) -> DreamrunnerResult<()> {
-    let id = ActiveOrder::client_order_id_suffix(&event.new_client_order_id);
+  pub fn update_active_order(&mut self, trade: TradeInfo) -> DreamrunnerResult<()> {
+    let id = ActiveOrder::client_order_id_suffix(&trade.client_order_id);
     match &*id {
       "ENTRY" => {
-        self.active_order.entry = Some(PendingOrActiveOrder::Active(
-          TradeInfo::from_order_trade_event(&event)?,
-        ));
+        self.active_order.entry = Some(PendingOrActiveOrder::Active(trade))
       }
       _ => debug!("Unknown order id: {}", id),
     }
-    debug!("{:#?}", event);
     Ok(())
   }
 
@@ -398,13 +401,32 @@ impl<S: Strategy> Engine<S> {
     if let Some(entry) = &copy.entry {
       match entry {
         PendingOrActiveOrder::Active(order) => {
+          let id = &order.client_order_id;
+          let actual_order = self
+            .all_orders()
+            .await?
+            .into_iter()
+            .find(|o| &o.client_order_id == id);
+          match actual_order {
+            None => {
+              error!("Active order is missing from historical orders: {:#?}", entry);
+            }
+            Some(actual_order) => {
+              let actual_order = TradeInfo::from_historical_order(&actual_order)?;
+              if actual_order.status != order.status {
+                info!("🟡 Cached order status, {}, is outdated from actual: {:#?}", order.status.to_str(), actual_order);
+                self.update_active_order(actual_order)?;
+              }
+            }
+          }
+          
           if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
             let placed_at = Time::from_unix_ms(order.event_time);
             let now = Time::now();
             debug!(
-              "Active order entry: {}, now: {}, stale: {}", 
-              placed_at.to_string(), 
-              now.to_string(), 
+              "Active order entry: {}, now: {}, stale: {}",
+              placed_at.to_string(),
+              now.to_string(),
               placed_at.diff_minutes(&now)? > 10
             );
             if placed_at.diff_minutes(&now)?.abs() > 10 {
@@ -423,8 +445,8 @@ impl<S: Strategy> Engine<S> {
           let placed_at = Time::from_unix_ms(order.timestamp);
           let now = Time::now();
           debug!(
-            "Pending order entry: {}, now: {}, stale: {}", 
-            placed_at.to_string(), 
+            "Pending order entry: {}, now: {}, stale: {}",
+            placed_at.to_string(),
             Time::now().to_string(),
             placed_at.diff_minutes(&now)? > 10
           );

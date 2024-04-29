@@ -117,6 +117,16 @@ impl Account {
         Ok(trades)
     }
 
+    pub async fn all_orders(&self) -> DreamrunnerResult<Vec<HistoricalOrder>> {
+        let req = AllOrders::request(self.ticker.clone(), Some(5000));
+        let mut orders = self
+          .client
+          .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
+        // order by time
+        orders.sort_by(|a, b| b.update_time.cmp(&a.update_time));
+        Ok(orders)
+    }
+
     pub async fn summary(&self, symbol: String) -> DreamrunnerResult<Summary> {
         let trades = self.trades(symbol).await?;
         let initial_capital = trades[0].price * trades[0].quantity;

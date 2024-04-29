@@ -52,7 +52,7 @@ impl Kagi {
     // match kagi.direction {
     //   KagiDirection::Up => {
     //     // candle reverses and drops below kagi line by reversal amount or greater
-    //     if prev_candle.close - candle.close > rev_amt {
+    //     if _prev_candle.close - candle.close > rev_amt {
     //       // close is beyond reversal amount in opposite kagi direction
     //       new_kagi = Kagi {
     //         line: candle.close,
@@ -62,7 +62,7 @@ impl Kagi {
     //   },
     //   KagiDirection::Down => {
     //     // candle reverses and rises above kagi line by reversal amount or greater
-    //     if candle.close - prev_candle.close > rev_amt {
+    //     if candle.close - _prev_candle.close > rev_amt {
     //       // close is beyond reversal amount in opposite kagi direction
     //       new_kagi = Kagi {
     //         line: candle.close,

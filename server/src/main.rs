@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
             .service(plot_pnl)
             .service(klines)
             .service(kline_history)
+            .service(orders)
             .route("/", web::get().to(test))
     })
     .bind(bind_address)?
@@ -130,9 +131,15 @@ async fn get_price(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpRespons
 
 #[get("/trades")]
 async fn trades(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
-    info!("Fetching all historical orders...");
     let res = account
         .trades(account.ticker.clone()).await?;
+    Ok(HttpResponse::Ok().json(res))
+}
+
+#[get("/orders")]
+async fn orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
+    let res = account
+      .all_orders().await?;
     Ok(HttpResponse::Ok().json(res))
 }
 

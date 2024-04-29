@@ -72,10 +72,10 @@ impl Dreamrunner {
       return Ok(Signal::None);
     }
 
-    // current candle
-    let c_0 = self.candles.vec[0];
     // prev candle
     let c_1 = self.candles.vec[1];
+    // current candle
+    let c_0 = self.candles.vec[0];
 
     // kagi for previous candle
     let k_1 = self.kagi;
@@ -423,17 +423,17 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let capital = 1_000.0;
-  let fee = 0.15;
+  let fee = 0.0;
   let compound = false;
   let leverage = 1;
 
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(25), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(3), &Day::from_num(20), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(3), &Day::from_num(22), None, None, None);
 
   // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
 
-  let out_file = "solusdt_30m.csv";
+  let out_file = "solusdt_30m_repaint.csv";
   let csv = PathBuf::from(out_file);
 
   let mut strategy_kagis = vec![];
@@ -476,53 +476,64 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
     });
   }
   // remove first 4 indices
-  strategy_kagis = strategy_kagis.into_iter().skip(4).collect();
-  strategy_wmas = strategy_wmas.into_iter().skip(4).collect();
+  // strategy_kagis.retain(
+  //   |c| c.y > 0.0
+  // );
+  // strategy_wmas.retain(
+  //   |c| c.y > 0.0
+  // );
+  strategy_kagis = strategy_kagis.into_iter().skip(10).collect();
+  strategy_wmas = strategy_wmas.into_iter().skip(10).collect();
+  
+  let closes = Dataset::new(backtest.candles.iter().map(|c| {
+    Data {
+      x: c.date.to_unix_ms(),
+      y: c.close
+    }
+  }).collect());
 
   Plot::plot(
-    vec![strategy_kagis, csv_series.kagis],
-    "solusdt_30m_kagis.png",
-    "Kagis",
+    // vec![closes.data().clone(), strategy_kagis, strategy_wmas, strategy_signals],
+    vec![closes.data().clone(), strategy_kagis],
+    "rust.png",
+    "Rust",
     "Price"
   )?;
-
-  Plot::plot(
-    vec![strategy_wmas, csv_series.wmas],
-    "solusdt_30m_wmas.png",
-    "WMAS",
-    "Price"
-  )?;
-
-  let pine_backtest = backtest.backtest_tradingview(compound)?;
-  Plot::plot(
-    vec![pine_backtest.cum_pct.0],
-    "tradingview_backtest.png",
-    "Tradingview",
-    "Price"
-  )?;
+  // closes = cyan
+  // kagis = red
+  // wmas = lime
 
   let pine_signals: Vec<Data> = backtest.signals.iter().flat_map(|s| {
     match s {
       Signal::Long((price, date)) => {
         Some(Data {
           x: date.to_unix_ms(),
-          y: *price
+          y: 140.0 //*price
         })
       }
       Signal::Short((price, date)) => {
         Some(Data {
           x: date.to_unix_ms(),
-          y: *price
+          y: 144.0 //*price
         })
       }
       Signal::None => None
     }
   }).collect();
   Plot::plot(
-    vec![pine_signals, strategy_signals],
-    "signals.png",
-    "Pine V Rust Signal Comparison",
-    "Signal"
+    // vec![csv_series.kagis, csv_series.wmas],
+    vec![closes.data().clone(), csv_series.kagis],
+    "pine.png",
+    "Pine",
+    "Price"
+  )?;
+
+  let pine_backtest = backtest.backtest_tradingview(compound)?;
+  Plot::plot(
+    vec![pine_backtest.cum_pct.0],
+    "pine_backtest.png",
+    "Tradingview Backtest",
+    "Price"
   )?;
 
   Ok(())
