@@ -18,6 +18,8 @@ pub enum DreamrunnerError {
     Binance(BinanceContentError),
     #[error("KlineMissing")]
     KlineMissing,
+    #[error("CandleCacheMissing")]
+    CandleCacheMissing,
     #[error("NoActiveOrder")]
     NoActiveOrder,
     #[error("SideInvalid")]

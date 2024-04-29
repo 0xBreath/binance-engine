@@ -5,12 +5,14 @@ use crate::Candle;
 pub struct CandleCache {
   pub vec: VecDeque<Candle>,
   pub capacity: usize,
+  pub ticker: String
 }
 impl CandleCache {
-  pub fn new(capacity: usize) -> Self {
+  pub fn new(capacity: usize, ticker: String) -> Self {
     Self {
       vec: VecDeque::with_capacity(capacity),
       capacity,
+      ticker
     }
   }
 

@@ -17,10 +17,17 @@ pub enum Source {
   Close
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct SignalInfo {
+  pub price: f64,
+  pub date: Time,
+  pub ticker: String
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Signal {
-  Long((f64, Time)),
-  Short((f64, Time)),
+  Long(SignalInfo),
+  Short(SignalInfo),
   None
 }
 
@@ -28,10 +35,10 @@ impl Signal {
   pub fn print(&self) -> String {
     match self {
       Signal::Long(data) => {
-        format!("🟢 Long {}", data.0)
+        format!("🟢 Long {}", data.price)
       },
       Signal::Short(data) => {
-        format!("🔴️ Short {}", data.0)
+        format!("🔴️ Short {}", data.price)
       },
       Signal::None => "No signal".to_string()
     }
@@ -40,8 +47,8 @@ impl Signal {
   #[allow(dead_code)]
   pub fn price(&self) -> Option<f64> {
     match self {
-      Signal::Long((price, _)) => Some(*price),
-      Signal::Short((price, _)) => Some(*price),
+      Signal::Long(info) => Some(info.price),
+      Signal::Short(info) => Some(info.price),
       Signal::None => None
     }
   }

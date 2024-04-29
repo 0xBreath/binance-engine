@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use std::str::FromStr;
 use lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
@@ -70,7 +69,8 @@ impl<S: Strategy> Engine<S> {
     // if we fetch the entire period, the most recent candle could be old.
     // for example: 15m candles, closed at 1:00pm, we fetch at 1:14pm, we trade using old data.
     // so we fetch one less than the rolling period and wait for the next candle to close to ensure we trade immediately.
-    self.load_recent_candles(Some(self.strategy.candles().capacity as u16)).await?;
+    let candles = self.strategy.candles(None).ok_or(DreamrunnerError::CandleCacheMissing)?;
+    self.load_recent_candles(Some(candles.capacity as u16)).await?;
 
     info!("🚀 Starting Dreamrunner!");
     while let Ok(event) = self.rx.recv() {
@@ -214,14 +214,14 @@ impl<S: Strategy> Engine<S> {
 
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
     match signal {
-      Signal::Long((price, time)) => {
-        let order = self.long_order(price, time)?;
+      Signal::Long(info) => {
+        let order = self.long_order(info.price, info.date)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
         Ok(())
       },
-      Signal::Short((price, time)) => {
-        let order = self.short_order(price, time)?;
+      Signal::Short(info) => {
+        let order = self.short_order(info.price, info.date)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
         Ok(())
@@ -231,7 +231,7 @@ impl<S: Strategy> Engine<S> {
   }
 
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
-    let signal = self.strategy.process_candle(candle)?;
+    let signal = self.strategy.process_candle(candle, None)?[0].clone();
     match &self.active_order.entry {
       None => {
         if Signal::None != signal {
@@ -461,6 +461,7 @@ impl<S: Strategy> Engine<S> {
           if let Some(actual_order) = actual_order {
             warn!("Pending order is not actually pending for id: {}", order.client_order_id);
             let order = TradeInfo::from_historical_order(&actual_order)?;
+            self.update_active_order(order.clone())?;
             if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
               let placed_at = Time::from_unix_ms(order.event_time);
               let now = Time::now();
@@ -468,9 +469,6 @@ impl<S: Strategy> Engine<S> {
                 info!("🟡 Reset partially filled order older than 10 minutes");
                 self.reset_active_order().await?;
               }
-            } else {
-              warn!("Manually updating active order");
-              self.update_active_order(order)?;
             }
           } else {
             let placed_at = Time::from_unix_ms(order.timestamp);
@@ -599,7 +597,7 @@ impl<S: Strategy> Engine<S> {
   pub async fn load_recent_candles(&mut self, limit: Option<u16>) -> DreamrunnerResult<()> {
     let klines = self.klines(limit, None, None).await?;
     for kline in klines {
-      self.strategy.push_candle(kline.to_candle());
+      self.strategy.push_candle(kline.to_candle(), None);
     }
     Ok(())
   }

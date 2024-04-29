@@ -1,9 +1,10 @@
 use log::{info, warn};
 use crate::{Strategy};
-use time_series::{Candle, Signal, Source, trunc, CandleCache, Kagi, Data, Dataset, Op};
+use time_series::{Candle, Signal, Source, trunc, CandleCache, Kagi, Data, Dataset, Op, SignalInfo};
 
 #[derive(Debug, Clone)]
 pub struct Dreamrunner {
+  pub ticker: String,
   pub k_rev: f64,
   pub k_src: Source,
   pub ma_src: Source,
@@ -15,13 +16,14 @@ pub struct Dreamrunner {
 }
 
 impl Dreamrunner {
-  pub fn new(k_rev: f64, k_src: Source, ma_src: Source, ma_period: usize) -> Self {
+  pub fn new(ticker: String, k_rev: f64, k_src: Source, ma_src: Source, ma_period: usize) -> Self {
     Self {
+      ticker: ticker.clone(),
       k_rev,
       k_src,
       ma_src,
       ma_period,
-      candles: CandleCache::new(ma_period + 1),
+      candles: CandleCache::new(ma_period + 1, ticker),
       kagi: Kagi::default(),
     }
   }
@@ -29,11 +31,12 @@ impl Dreamrunner {
   pub fn solusdt_optimized() -> Self {
     let ma_period = 4;
     Self {
+      ticker: "SOLUSDT".to_string(),
       k_rev: 0.03,
       k_src: Source::Close,
       ma_src: Source::Open,
       ma_period,
-      candles: CandleCache::new(ma_period + 1),
+      candles: CandleCache::new(ma_period + 1, "SOLUSDT".to_string()),
       kagi: Kagi::default(),
     }
   }
@@ -41,11 +44,12 @@ impl Dreamrunner {
   pub fn ethusdt_optimized() -> Self {
     let ma_period = 14;
     Self {
+      ticker: "ETHUSDT".to_string(),
       k_rev: 58.4,
       k_src: Source::Close,
       ma_src: Source::Open,
       ma_period,
-      candles: CandleCache::new(ma_period + 1),
+      candles: CandleCache::new(ma_period + 1, "ETHUSDT".to_string()),
       kagi: Kagi::default(),
     }
   }
@@ -53,11 +57,12 @@ impl Dreamrunner {
   pub fn btcusdt_optimized() -> Self {
     let ma_period = 8;
     Self {
+      ticker: "BTCUSDT".to_string(),
       k_rev: 58.0,
       k_src: Source::Close,
       ma_src: Source::Open,
       ma_period,
-      candles: CandleCache::new(ma_period + 1),
+      candles: CandleCache::new(ma_period + 1, "BTCUSDT".to_string()),
       kagi: Kagi::default(),
     }
   }
@@ -100,8 +105,16 @@ impl Dreamrunner {
       (true, true) => {
         Err(anyhow::anyhow!("Both long and short signals detected"))
       },
-      (true, false) => Ok(Signal::Long((c_0.close, c_0.date))),
-      (false, true) => Ok(Signal::Short((c_0.close, c_0.date))),
+      (true, false) => Ok(Signal::Long(SignalInfo {
+        price: c_0.close, 
+        date: c_0.date,
+        ticker: self.ticker.clone()
+      })),
+      (false, true) => Ok(Signal::Short(SignalInfo {
+        price: c_0.close, 
+        date: c_0.date,
+        ticker: self.ticker.clone()
+      })),
       (false, false) => Ok(Signal::None)
     }
   }
@@ -127,18 +140,18 @@ impl Dreamrunner {
 
 impl Strategy for Dreamrunner {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle) -> anyhow::Result<Signal> {
+  fn process_candle(&mut self, candle: Candle, _ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     // pushes to front of VecDeque and pops the back if at capacity
     self.candles.push(candle);
-    self.signal()
+    Ok(vec![self.signal()?])
   }
 
-  fn push_candle(&mut self, candle: Candle) {
+  fn push_candle(&mut self, candle: Candle, _ticker: Option<String>) {
     self.candles.push(candle);
   }
 
-  fn candles(&self) -> &CandleCache {
-    &self.candles
+  fn candles(&self, _ticker: Option<String>) -> Option<&CandleCache> {
+    Some(&self.candles)
   }
 }
 
@@ -184,65 +197,6 @@ async fn sol_backtest() -> anyhow::Result<()> {
     "% ROI",
     "Unix Millis"
   )?;
-
-
-  // ==== Dreamrunner Strategy ====
-  let mut strategy_kagis = vec![];
-  let mut strategy_wmas = vec![];
-  let mut strategy_signals = vec![];
-
-  let mut strategy = strategy.clone();
-  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
-  let csv_series = backtest.add_csv_series(&csv, Some(start_time), Some(end_time))?;
-  backtest.candles = csv_series.candles;
-  backtest.signals = csv_series.signals;
-  let candles = backtest.candles.clone();
-  for candle in candles {
-    let signal = strategy.process_candle(candle)?;
-
-    match signal {
-      Signal::Long((price, date)) => {
-        strategy_signals.push(Data {
-          x: date.to_unix_ms(),
-          y: price
-        });
-      }
-      Signal::Short((price, date)) => {
-        strategy_signals.push(Data {
-          x: date.to_unix_ms(),
-          y: price
-        });
-      }
-      Signal::None => ()
-    }
-
-    strategy_kagis.push(Data {
-      x: candle.date.to_unix_ms(),
-      y: strategy.kagi.line
-    });
-    let cached_candles: Vec<&Candle> = strategy.candles.vec.range(0..strategy.candles.vec.len() - 1).collect();
-    strategy_wmas.push(Data {
-      x: candle.date.to_unix_ms(),
-      y: strategy.wma(&cached_candles)
-    });
-  }
-  // remove first indices
-  strategy_kagis = strategy_kagis.into_iter().skip(4).collect();
-  strategy_wmas = strategy_wmas.into_iter().skip(4).collect();
-
-  let closes = Dataset::new(backtest.candles.iter().map(|c| {
-    Data {
-      x: c.date.to_unix_ms(),
-      y: c.close
-    }
-  }).collect());
-  // Plot::plot(
-  //   vec![strategy_kagis, strategy_wmas, closes.0],
-  //   "solusdt_30m_dreamrunner_strategy.png",
-  //   "Dreamrunner Strategy",
-  //   "Price"
-  //    "Time"
-  // )?;
 
   Ok(())
 }
@@ -452,19 +406,19 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
   backtest.signals = csv_series.signals;
   let candles = backtest.candles.clone();
   for candle in candles {
-    let signal = strategy.process_candle(candle)?;
+    let signal = strategy.process_candle(candle, None)?[0].clone();
 
     match signal {
-      Signal::Long((price, date)) => {
+      Signal::Long(info) => {
         strategy_signals.push(Data {
-          x: date.to_unix_ms(),
-          y: price
+          x: info.date.to_unix_ms(),
+          y: info.price
         });
       }
-      Signal::Short((price, date)) => {
+      Signal::Short(info) => {
         strategy_signals.push(Data {
-          x: date.to_unix_ms(),
-          y: price
+          x: info.date.to_unix_ms(),
+          y: info.price
         });
       }
       Signal::None => ()
@@ -511,15 +465,15 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
 
   let pine_signals: Vec<Data> = backtest.signals.iter().flat_map(|s| {
     match s {
-      Signal::Long((price, date)) => {
+      Signal::Long(info) => {
         Some(Data {
-          x: date.to_unix_ms(),
+          x: info.date.to_unix_ms(),
           y: 140.0 //*price
         })
       }
-      Signal::Short((price, date)) => {
+      Signal::Short(info) => {
         Some(Data {
-          x: date.to_unix_ms(),
+          x: info.date.to_unix_ms(),
           y: 144.0 //*price
         })
       }

@@ -1,84 +1,132 @@
 use log::warn;
 use crate::{Strategy};
-use time_series::{Candle, Signal, Source, CandleCache, Data, Dataset, Op};
+use time_series::{Candle, Signal, CandleCache, Data, Dataset, SignalInfo};
+use tradestats::metrics::*;
 
 #[derive(Debug, Clone)]
 pub struct StatArb {
-  pub src: Source,
-  pub period: usize,
+  pub window: usize,
   /// Last N candles from current candle.
   /// 0th index is current candle, Nth index is oldest candle.
-  pub candles: CandleCache,
-  pub threshold: f64
+  pub x: CandleCache,
+  /// Last N candles from current candle.
+  /// 0th index is current candle, Nth index is oldest candle.
+  pub y: CandleCache,
+  pub zscore_threshold: f64
 }
 
 impl StatArb {
-  pub fn new(src: Source, period: usize, threshold: f64) -> Self {
+  pub fn new(window: usize, zscore_threshold: f64, x_ticker: String, y_ticker: String) -> Self {
     Self {
-      src,
-      period,
-      candles: CandleCache::new(period + 1),
-      threshold
+      window,
+      x: CandleCache::new(window, x_ticker),
+      y: CandleCache::new(window, y_ticker),
+      zscore_threshold
     }
   }
-  
-  pub fn test(&self) -> anyhow::Result<()> {
-    Ok(())
-  }
 
-  pub fn signal(&mut self) -> anyhow::Result<Signal> {
-    if self.candles.vec.len() < self.candles.capacity {
+  pub fn signal(&mut self) -> anyhow::Result<Vec<Signal>> {
+    if self.x.vec.len() < self.x.capacity || self.y.vec.len() < self.y.capacity {
       warn!("Insufficient candles to generate signal");
-      return Ok(Signal::None);
+      return Ok(vec![Signal::None, Signal::None]);
     }
-
-    // most recent candle is 0th index
-    let data = Dataset::new(self.candles.vec.iter().map(|c| {
+    
+    let x_d = Dataset::new(self.x.vec.iter().map(|c| {
       Data {
         x: c.date.to_unix_ms(),
-        y: match self.src {
-          Source::Open => c.open,
-          Source::High => c.high,
-          Source::Low => c.low,
-          Source::Close => c.close
-        }
+        y: c.close
       }
     }).collect());
-    let zscores = data.translate(&Op::ZScoreMean(self.period));
-    let z_0: f64 = zscores[0].y;
-    let z_1: f64 = zscores[1].y;
-    let c_0 = &self.candles.vec[0];
+    let x = x_d.y();
+    let x_0 = self.x.vec[0];
 
-    // long if WMA crosses above Kagi and was below Kagi in previous candle
-    let long = z_0 > self.threshold && z_1 < self.threshold;
-    // short if WMA crosses below Kagi and was above Kagi in previous candle
-    let short = z_0 < -(self.threshold) && z_1 > -(self.threshold);
+    let y_d = Dataset::new(self.y.vec.iter().map(|c| {
+      Data {
+        x: c.date.to_unix_ms(),
+        y: c.close
+      }
+    }).collect());
+    let y = y_d.y();
+    let y_0 = self.y.vec[0];
 
-    match (long, short) {
+    let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
+      |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+    )?;
+    assert_eq!(spread.len(), y.len());
+    assert_eq!(spread.len(), x.len());
+    
+    let zscore: Vec<f64> = rolling_zscore(&spread, self.window).unwrap();
+    assert_eq!(zscore.len(), spread.len());
+    let zscore = Dataset::new(zscore.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
+    let zscores = zscore.asc_order();
+    let z_0 = zscores[0].clone();
+    let z_1 = zscores[1].clone();
+    
+    let enter_long = z_0.y < -self.zscore_threshold; // above 1st std dev
+    let exit_long = z_0.y > 0.0 && z_1.y < 0.0; // returns to mean (zscore = 0)
+    
+    match (enter_long, exit_long) {
       (true, true) => {
         Err(anyhow::anyhow!("Both long and short signals detected"))
       },
-      (true, false) => Ok(Signal::Long((c_0.close, c_0.date))),
-      (false, true) => Ok(Signal::Short((c_0.close, c_0.date))),
-      (false, false) => Ok(Signal::None)
+      (true, false) => Ok(vec![
+        Signal::Short(SignalInfo {
+          price: y_0.close, 
+          date: y_0.date,
+          ticker: self.y.ticker.clone()
+        }), 
+        Signal::Long(SignalInfo {
+          price: x_0.close, 
+          date: x_0.date,
+          ticker: self.x.ticker.clone()
+        })
+      ]),
+      (false, true) => Ok(vec![
+        Signal::Long(SignalInfo {
+          price: y_0.close,
+          date: y_0.date,
+          ticker: self.y.ticker.clone()
+        }),
+        Signal::Short(SignalInfo {
+          price: x_0.close,
+          date: x_0.date,
+          ticker: self.x.ticker.clone()
+        })
+      ]),
+      (false, false) => Ok(vec![Signal::None, Signal::None])
     }
   }
 }
 
 impl Strategy for StatArb {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle) -> anyhow::Result<Signal> {
-    // pushes to front of VecDeque and pops the back if at capacity
-    self.candles.push(candle);
+  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
+    self.push_candle(candle, ticker);
     self.signal()
   }
 
-  fn push_candle(&mut self, candle: Candle) {
-    self.candles.push(candle);
+  fn push_candle(&mut self, candle: Candle, ticker: Option<String>) {
+    if let Some(ticker) = ticker {
+      if ticker == self.x.ticker {
+        self.x.push(candle);
+      } else if ticker == self.y.ticker {
+        self.y.push(candle);
+      }
+    }
   }
 
-  fn candles(&self) -> &CandleCache {
-    &self.candles
+  fn candles(&self, ticker: Option<String>) -> Option<&CandleCache> {
+    if let Some(ticker) = ticker{ 
+      if ticker == self.x.ticker {
+        Some(&self.x)
+      } else if ticker == self.y.ticker {
+        Some(&self.y)
+      } else {
+        None
+      }
+    } else {
+      None
+    }
   }
 }
 
@@ -88,7 +136,7 @@ impl Strategy for StatArb {
 // ==========================================================================================
 
 #[tokio::test]
-async fn btc_eth_kalman() -> anyhow::Result<()> {
+async fn btc_eth_cointegration() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot};
@@ -98,10 +146,11 @@ async fn btc_eth_kalman() -> anyhow::Result<()> {
   use tradestats::utils::*;
   dotenv::dotenv().ok();
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
   
-  let strat = StatArb::new(Source::Close, 50, 2.0);
+  let strat = StatArb::new(100, 1.0, "BTCUSDT".to_string(), "ETHUSDT".to_string());;
   
   let mut btc = Backtest::new(strat.clone(), 0.0, 0.0, false, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
@@ -124,10 +173,13 @@ async fn btc_eth_kalman() -> anyhow::Result<()> {
   let y: Vec<f64> = eth.candles.iter().map(|c| c.close).collect();
   let x = log_returns(&x, false);
   let y = log_returns(&y, false);
+  assert_eq!(x.len(), y.len());
 
   let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
     |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
   )?;
+  assert_eq!(spread.len(), y.len());
+  assert_eq!(spread.len(), x.len());
 
   let dynamic_kalman_hedge = Dataset::new(dynamic_hedge_kalman_filter(&x, &y).map_err(
     |e| anyhow::anyhow!("Error calculating dynamic hedge ratio: {}", e)
@@ -143,7 +195,9 @@ async fn btc_eth_kalman() -> anyhow::Result<()> {
 
   // let window = 20;
   let window = half_life.abs().round() as usize;
+  let window = 20;
   let zscore: Vec<f64> = rolling_zscore(&spread, window).unwrap();
+  assert_eq!(zscore.len(), spread.len());
   let zscore = Dataset::new(zscore.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
   
   let roll_coint = Dataset::new(rolling_cointegration(&x, &y, window).map_err(

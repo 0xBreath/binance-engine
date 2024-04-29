@@ -19,8 +19,21 @@ pub struct Data {
 pub struct Dataset(pub Vec<Data>);
 
 impl Dataset {
-  pub fn new(data: Vec<Data>) -> Self {
-    Self(data)
+  pub fn new(data: Vec<Data>) -> Self { Self(data) }
+  
+  pub fn asc_order(&self) -> Vec<Data> {
+    // sort so data.x is in ascending order (highest value is 0th index)
+    let mut data = self.0.clone();
+    data.sort_by(|a, b| a.x.cmp(&b.x));
+    data
+  }
+  
+  pub fn x(&self) -> Vec<i64> {
+    self.0.iter().map(|d| d.x).collect()
+  }
+  
+  pub fn y(&self) -> Vec<f64> {
+    self.0.iter().map(|d| d.y).collect()
   }
   
   pub fn data(&self) -> &Vec<Data> {

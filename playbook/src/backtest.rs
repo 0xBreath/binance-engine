@@ -2,7 +2,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::cell::Cell;
-use time_series::{Candle, Data, Dataset, Op, Signal, Summary, Time, trunc};
+use time_series::{Candle, Data, Dataset, Op, Signal, SignalInfo, Summary, Time, trunc};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -62,11 +62,12 @@ impl<S: Strategy> Backtest<S> {
   /// Handles duplicate candles and sorts candles by date.
   /// Expects date of candle to be in UNIX timestamp format.
   /// CSV format: date,open,high,low,close,volume
-  pub fn add_csv_series(
+  pub fn csv_series(
     &mut self,
     csv_path: &PathBuf,
     start_time: Option<Time>,
-    end_time: Option<Time>
+    end_time: Option<Time>,
+    ticker: String
   ) -> anyhow::Result<CsvSeries> {
     let file_buffer = File::open(csv_path)?;
     let mut csv = csv::Reader::from_reader(file_buffer);
@@ -106,8 +107,16 @@ impl<S: Strategy> Backtest<S> {
         let long: bool = long == 1;
         let short: bool = short == 1;
         let signal = match (long, short) {
-          (true, false) => Signal::Long((candle.close, candle.date)),
-          (false, true) => Signal::Short((candle.close, candle.date)),
+          (true, false) => Signal::Long(SignalInfo {
+            price: candle.close, 
+            date: candle.date,
+            ticker: ticker.clone()
+          }),
+          (false, true) => Signal::Short(SignalInfo {
+            price: candle.close, 
+            date: candle.date,
+            ticker: ticker.clone()
+          }),
           _ => Signal::None
         };
         signals.push(signal);
@@ -143,30 +152,30 @@ impl<S: Strategy> Backtest<S> {
     });
     signals.retain(|signal| {
       match signal {
-        Signal::Long((_, date)) => {
+        Signal::Long(info) => {
           match (start_time, end_time) {
             (Some(start), Some(end)) => {
-              date.to_unix_ms() > start.to_unix_ms() && date.to_unix_ms() < end.to_unix_ms()
+              info.date.to_unix_ms() > start.to_unix_ms() && info.date.to_unix_ms() < end.to_unix_ms()
             },
             (Some(start), None) => {
-              date.to_unix_ms() > start.to_unix_ms()
+              info.date.to_unix_ms() > start.to_unix_ms()
             },
             (None, Some(end)) => {
-              date.to_unix_ms() < end.to_unix_ms()
+              info.date.to_unix_ms() < end.to_unix_ms()
             },
             (None, None) => true
           }
         }
-        Signal::Short((_, date)) => {
+        Signal::Short(info) => {
           match (start_time, end_time) {
             (Some(start), Some(end)) => {
-              date.to_unix_ms() > start.to_unix_ms() && date.to_unix_ms() < end.to_unix_ms()
+              info.date.to_unix_ms() > start.to_unix_ms() && info.date.to_unix_ms() < end.to_unix_ms()
             },
             (Some(start), None) => {
-              date.to_unix_ms() > start.to_unix_ms()
+              info.date.to_unix_ms() > start.to_unix_ms()
             },
             (None, Some(end)) => {
-              date.to_unix_ms() < end.to_unix_ms()
+              info.date.to_unix_ms() < end.to_unix_ms()
             },
             (None, None) => true
           }
@@ -347,36 +356,36 @@ impl<S: Strategy> Backtest<S> {
       }
 
       // place new trade if signal is present
-      let signal = self.strategy.process_candle(candle)?;
+      let signal = self.strategy.process_candle(candle, self.ticker.clone())?[0].clone();
       match signal {
-        Signal::Long((price, time)) => {
+        Signal::Long(info) => {
           if let Some(trade) = &active_trade {
             if trade.side == Order::Long {
               continue;
             }
           }
-          let quantity = capital / price;
+          let quantity = capital / info.price;
           let trade = Trade {
-            date: time,
+            date: info.date,
             side: Order::Long,
             quantity,
-            price,
+            price: info.price,
           };
           active_trade = Some(trade);
           self.add_trade(trade);
         },
-        Signal::Short((price, time)) => {
+        Signal::Short(info) => {
           if let Some(trade) = &active_trade {
             if trade.side == Order::Short {
               continue;
             }
           }
-          let quantity = capital / price;
+          let quantity = capital / info.price;
           let trade = Trade {
-            date: time,
+            date: info.date,
             side: Order::Short,
             quantity,
-            price,
+            price: info.price,
           };
           active_trade = Some(trade);
           self.add_trade(trade);
