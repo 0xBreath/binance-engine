@@ -430,12 +430,6 @@ impl<S: Strategy> Engine<S> {
           if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
             let placed_at = Time::from_unix_ms(order.event_time);
             let now = Time::now();
-            debug!(
-              "Active order entry: {}, now: {}, stale: {}",
-              placed_at.to_string(),
-              now.to_string(),
-              placed_at.diff_minutes(&now)? > 10
-            );
             if placed_at.diff_minutes(&now)?.abs() > 10 {
               info!("🟡 Reset partially filled order older than 10 minutes");
               self.reset_active_order().await?;
@@ -449,18 +443,34 @@ impl<S: Strategy> Engine<S> {
           }
         }
         PendingOrActiveOrder::Pending(order) => {
-          let placed_at = Time::from_unix_ms(order.timestamp);
-          let now = Time::now();
-          debug!(
-            "Pending order entry: {}, now: {}, stale: {}",
-            placed_at.to_string(),
-            Time::now().to_string(),
-            placed_at.diff_minutes(&now)? > 10
-          );
-          if placed_at.diff_minutes(&now)?.abs() > 10 {
-            info!("🟡 Reset pending order older than 10 minutes");
-            self.reset_active_order().await?;
+          let actual_order = self
+            .all_orders()
+            .await?
+            .into_iter()
+            .find(|o| o.client_order_id == order.client_order_id);
+          if let Some(actual_order) = actual_order {
+            warn!("Pending order is not actually pending for id: {}", order.client_order_id);
+            let order = TradeInfo::from_historical_order(&actual_order)?;
+            if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
+              let placed_at = Time::from_unix_ms(order.event_time);
+              let now = Time::now();
+              if placed_at.diff_minutes(&now)?.abs() > 10 {
+                info!("🟡 Reset partially filled order older than 10 minutes");
+                self.reset_active_order().await?;
+              }
+            } else {
+              warn!("Manually updating active order");
+              self.update_active_order(order)?;
+            }
+          } else {
+            let placed_at = Time::from_unix_ms(order.timestamp);
+            let now = Time::now();
+            if placed_at.diff_minutes(&now)?.abs() > 10 {
+              info!("🟡 Reset pending order older than 10 minutes");
+              self.reset_active_order().await?;
+            }
           }
+          
         }
       }
     }

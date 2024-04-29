@@ -173,7 +173,8 @@ async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse
         vec![res.cum_quote.0],
         "dreamrunner_roi.png",
         "Quote Pnl",
-        QUOTE_ASSET
+        QUOTE_ASSET,
+        "Unix Millis"
     )?;
 
     Ok(HttpResponse::Ok().body("Ok"))

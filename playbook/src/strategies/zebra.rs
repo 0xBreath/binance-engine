@@ -1,6 +1,6 @@
-use log::{info, warn};
+use log::warn;
 use crate::{Strategy};
-use time_series::{Candle, Signal, Source, trunc, CandleCache, Data, Dataset, Op};
+use time_series::{Candle, Signal, Source, CandleCache, Data, Dataset, Op};
 
 #[derive(Debug, Clone)]
 pub struct Zebra {
@@ -48,7 +48,7 @@ impl Zebra {
     // long if WMA crosses above Kagi and was below Kagi in previous candle
     let long = z_0 > self.threshold && z_1 < self.threshold;
     // short if WMA crosses below Kagi and was above Kagi in previous candle
-    let short = z_0 < -(self.threshold) && z_1 > -(self.threshold);
+    let short = z_0 < -self.threshold && z_1 > -self.threshold;
 
     match (long, short) {
       (true, true) => {
@@ -122,7 +122,8 @@ async fn sol_backtest() -> anyhow::Result<()> {
     vec![summary.cum_pct.0],
     "solusdt_30m_zebra_backtest.png",
     "SOL/USDT Zebra Backtest",
-    "% ROI"
+    "% ROI",
+    "Unix Millis"
   )?;
 
   Ok(())
@@ -163,7 +164,8 @@ async fn solusdt_zscore() -> anyhow::Result<()> {
     vec![data.translate(&op)],
     "solusdt_30m_zscore.png",
     "SOL/USDT Z Score",
-    "Z Score"
+    "Z Score",
+    "Unix Millis"
   )?;
 
   Ok(())

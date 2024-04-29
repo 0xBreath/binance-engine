@@ -181,7 +181,8 @@ async fn sol_backtest() -> anyhow::Result<()> {
     vec![summary.cum_pct.0, backtest.buy_and_hold(&Op::None)?],
     "solusdt_30m_dreamrunner_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
-    "% ROI"
+    "% ROI",
+    "Unix Millis"
   )?;
 
 
@@ -235,12 +236,13 @@ async fn sol_backtest() -> anyhow::Result<()> {
       y: c.close
     }
   }).collect());
-  Plot::plot(
-    vec![strategy_kagis, strategy_wmas, closes.0],
-    "solusdt_30m_dreamrunner_strategy.png",
-    "Dreamrunner Strategy",
-    "Price"
-  )?;
+  // Plot::plot(
+  //   vec![strategy_kagis, strategy_wmas, closes.0],
+  //   "solusdt_30m_dreamrunner_strategy.png",
+  //   "Dreamrunner Strategy",
+  //   "Price"
+  //    "Time"
+  // )?;
 
   Ok(())
 }
@@ -280,7 +282,8 @@ async fn eth_backtest() -> anyhow::Result<()> {
     vec![summary.cum_quote.0, backtest.buy_and_hold(&Op::None)?],
     "ethusdt_30m_backtest.png",
     "ETH/USDT Dreamrunner Backtest",
-    "Equity"
+    "Equity",
+    "Unix Millis"
   )?;
 
   Ok(())
@@ -320,7 +323,8 @@ async fn btc_backtest() -> anyhow::Result<()> {
     vec![summary.cum_quote.0, backtest.buy_and_hold(&Op::None)?],
     "btcusdt_30m_backtest.png",
     "BTC/USDT Dreamrunner Backtest",
-    "Equity"
+    "Equity",
+    "Unix Millis"
   )?;
 
   Ok(())
@@ -407,7 +411,8 @@ async fn optimize() -> anyhow::Result<()> {
     vec![summary.cum_pct.0, backtest.buy_and_hold(&Op::None)?],
     out_file,
     "Dreamrunner Optimal Backtest",
-    "% ROI"
+    "% ROI",
+    "Unix Millis"
   )?;
 
   Ok(())
@@ -497,7 +502,8 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
     vec![closes.data().clone(), strategy_kagis],
     "rust.png",
     "Rust",
-    "Price"
+    "Price",
+    "Unix Millis"
   )?;
   // closes = cyan
   // kagis = red
@@ -525,7 +531,8 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
     vec![closes.data().clone(), csv_series.kagis],
     "pine.png",
     "Pine",
-    "Price"
+    "Price",
+    "Unix Millis"
   )?;
 
   let pine_backtest = backtest.backtest_tradingview(compound)?;
@@ -533,7 +540,8 @@ async fn pine_versus_rust() -> anyhow::Result<()> {
     vec![pine_backtest.cum_pct.0],
     "pine_backtest.png",
     "Tradingview Backtest",
-    "Price"
+    "Price",
+    "Unix Millis"
   )?;
 
   Ok(())
@@ -574,7 +582,8 @@ async fn solusdt_zscore() -> anyhow::Result<()> {
     vec![data.translate(&op)],
     "solusdt_30m_zscore.png",
     "SOL/USDT Z Score",
-    "Z Score"
+    "Z Score",
+    "Unix Millis"
   )?;
 
   Ok(())
