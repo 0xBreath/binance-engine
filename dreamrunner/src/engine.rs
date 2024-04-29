@@ -422,7 +422,17 @@ impl<S: Strategy> Engine<S> {
               let actual_order = TradeInfo::from_historical_order(&actual_order)?;
               if actual_order.status != order.status {
                 info!("🟡 Cached order status, {}, is outdated from actual: {:#?}", order.status.to_str(), actual_order);
-                self.update_active_order(actual_order)?;
+
+                if actual_order.status == OrderStatus::PartiallyFilled || actual_order.status == OrderStatus::New {
+                  let placed_at = Time::from_unix_ms(actual_order.event_time);
+                  let now = Time::now();
+                  if placed_at.diff_minutes(&now)?.abs() > 10 {
+                    info!("🟡 Reset partially filled order older than 10 minutes");
+                    self.reset_active_order().await?;
+                  }
+                } else {
+                  self.update_active_order(actual_order)?;
+                }
               }
             }
           }
@@ -470,7 +480,6 @@ impl<S: Strategy> Engine<S> {
               self.reset_active_order().await?;
             }
           }
-          
         }
       }
     }
