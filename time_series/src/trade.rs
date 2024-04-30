@@ -73,9 +73,9 @@ pub struct PerformanceSummary {
 pub struct Summary {
   /// Average quote amount per trade
   pub avg_trade_size: f64,
-  pub cum_quote: Dataset,
-  pub cum_pct: Dataset,
-  pub pct_per_trade: Dataset
+  pub cum_quote: Dataset<f64>,
+  pub cum_pct: Dataset<f64>,
+  pub pct_per_trade: Dataset<f64>
 }
 impl Summary {
   pub fn print(&self) {

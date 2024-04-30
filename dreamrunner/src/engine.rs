@@ -10,7 +10,7 @@ use lib::trade::*;
 use time_series::{trunc, Candle, Time, Signal};
 use playbook::Strategy;
 
-pub struct Engine<S: Strategy> {
+pub struct Engine<T, S: Strategy<T>> {
   pub client: Client,
   pub rx: Receiver<WebSocketEvent>,
   pub disable_trading: bool,
@@ -25,7 +25,7 @@ pub struct Engine<S: Strategy> {
   pub strategy: S
 }
 
-impl<S: Strategy> Engine<S> {
+impl<T, S: Strategy<T>> Engine<T, S> {
   #[allow(clippy::too_many_arguments)]
   pub fn new(
     client: Client,

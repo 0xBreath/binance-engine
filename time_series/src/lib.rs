@@ -4,19 +4,17 @@ pub mod square_of_nine;
 pub mod time;
 pub mod plot;
 pub mod trade;
-pub mod candle_cache;
 pub mod kagi;
 pub mod data;
-pub mod generic_cache;
+pub mod data_cache;
 
 pub use candle::*;
 pub use time::*;
 pub use plot::*;
 pub use trade::*;
-pub use candle_cache::*;
 pub use kagi::*;
 pub use data::*;
-pub use generic_cache::*;
+pub use data_cache::*;
 
 use log::*;
 use simplelog::{

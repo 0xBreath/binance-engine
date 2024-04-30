@@ -1,6 +1,6 @@
 use log::{info, warn};
 use crate::{Strategy};
-use time_series::{Candle, Signal, Source, trunc, CandleCache, Kagi, SignalInfo};
+use time_series::{Candle, Signal, Source, trunc, DataCache, Kagi, SignalInfo};
 
 #[derive(Debug, Clone)]
 pub struct Dreamrunner {
@@ -11,7 +11,7 @@ pub struct Dreamrunner {
   pub ma_period: usize,
   /// Last N candles from current candle.
   /// 0th index is current candle, Nth index is oldest candle.
-  pub candles: CandleCache,
+  pub candles: DataCache<Candle>,
   pub kagi: Kagi,
 }
 
@@ -23,7 +23,7 @@ impl Dreamrunner {
       k_src,
       ma_src,
       ma_period,
-      candles: CandleCache::new(ma_period + 1, ticker),
+      candles: DataCache::new(ma_period + 1, ticker),
       kagi: Kagi::default(),
     }
   }
@@ -36,7 +36,7 @@ impl Dreamrunner {
       k_src: Source::Close,
       ma_src: Source::Open,
       ma_period,
-      candles: CandleCache::new(ma_period + 1, "SOLUSDT".to_string()),
+      candles: DataCache::new(ma_period + 1, "SOLUSDT".to_string()),
       kagi: Kagi::default(),
     }
   }
@@ -49,7 +49,7 @@ impl Dreamrunner {
       k_src: Source::Close,
       ma_src: Source::Open,
       ma_period,
-      candles: CandleCache::new(ma_period + 1, "ETHUSDT".to_string()),
+      candles: DataCache::new(ma_period + 1, "ETHUSDT".to_string()),
       kagi: Kagi::default(),
     }
   }
@@ -62,7 +62,7 @@ impl Dreamrunner {
       k_src: Source::Close,
       ma_src: Source::Open,
       ma_period,
-      candles: CandleCache::new(ma_period + 1, "BTCUSDT".to_string()),
+      candles: DataCache::new(ma_period + 1, "BTCUSDT".to_string()),
       kagi: Kagi::default(),
     }
   }
@@ -78,9 +78,9 @@ impl Dreamrunner {
     }
 
     // prev candle
-    let c_1 = self.candles.vec[1];
+    let c_1 = self.candles.vec[1].clone();
     // current candle
-    let c_0 = self.candles.vec[0];
+    let c_0 = self.candles.vec[0].clone();
 
     // kagi for previous candle
     let k_1 = self.kagi;
@@ -138,7 +138,7 @@ impl Dreamrunner {
   }
 }
 
-impl Strategy for Dreamrunner {
+impl Strategy<Candle> for Dreamrunner {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
   fn process_candle(&mut self, candle: Candle, _ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     // pushes to front of VecDeque and pops the back if at capacity
@@ -150,7 +150,7 @@ impl Strategy for Dreamrunner {
     self.candles.push(candle);
   }
 
-  fn candles(&self, _ticker: Option<String>) -> Option<&CandleCache> {
+  fn cache(&self, _ticker: Option<String>) -> Option<&DataCache<Candle>> {
     Some(&self.candles)
   }
 }
@@ -164,7 +164,7 @@ impl Strategy for Dreamrunner {
 async fn sol_backtest() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Op};
+  use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
   dotenv::dotenv().ok();
   
@@ -191,7 +191,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   println!("==== Dreamrunner Backtest ====");
   backtest.backtest(stop_loss)?;
   let summary = backtest.summary(ticker.clone())?;
-  let all_buy_and_hold = backtest.buy_and_hold(&Op::None)?;
+  let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
@@ -212,7 +212,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
 async fn eth_backtest() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Op};
+  use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
   dotenv::dotenv().ok();
 
@@ -238,7 +238,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
 
   println!("==== Dreamrunner Backtest ====");
   summary.print();
-  let all_buy_and_hold = backtest.buy_and_hold(&Op::None)?;
+  let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
@@ -257,7 +257,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
 #[tokio::test]
 async fn btc_backtest() -> anyhow::Result<()> {
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Op};
+  use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
   dotenv::dotenv().ok();
 
@@ -283,7 +283,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
 
   println!("==== Dreamrunner Backtest ====");
   summary.print();
-  let all_buy_and_hold = backtest.buy_and_hold(&Op::None)?;
+  let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
@@ -302,7 +302,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
 #[tokio::test]
 async fn optimize() -> anyhow::Result<()> {
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Summary, Op};
+  use time_series::{Time, Day, Month, Plot, Summary};
   use crate::Backtest;
   use rayon::prelude::{IntoParallelIterator, ParallelIterator};
   dotenv::dotenv().ok();
@@ -376,7 +376,7 @@ async fn optimize() -> anyhow::Result<()> {
   println!("Kagi Rev: {}", optimized.k_rev);
   let summary = optimized.summary;
   summary.print();
-  let all_buy_and_hold = backtest.buy_and_hold(&Op::None)?;
+  let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?

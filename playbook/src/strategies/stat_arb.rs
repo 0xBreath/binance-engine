@@ -1,20 +1,21 @@
 use log::warn;
 use rayon::prelude::*;
-use crate::{Strategy};
-use time_series::{Candle, Signal, CandleCache, Data, Dataset};
+use crate::Strategy;
+use time_series::{Candle, Signal, DataCache, Data, Dataset, SignalInfo, Time};
+use tradestats::metrics::*;
 
 #[derive(Debug, Clone)]
 pub struct StatArb {
-  /// Capacity of candle caches
+  /// Capacity of data caches
   pub capacity: usize,
   /// Window to compute zscores
   pub window: usize,
-  /// Last N candles from current candle.
-  /// 0th index is current candle, Nth index is oldest candle.
-  pub x: CandleCache,
-  /// Last N candles from current candle.
-  /// 0th index is current candle, Nth index is oldest candle.
-  pub y: CandleCache,
+  /// Last N data from current datum.
+  /// 0th index is current datum, Nth index is oldest datum.
+  pub x: DataCache<Data<f64>>,
+  /// Last N data from current datum.
+  /// 0th index is current datum, Nth index is oldest datum.
+  pub y: DataCache<Data<f64>>,
   pub zscore_threshold: f64
 }
 
@@ -23,10 +24,29 @@ impl StatArb {
     Self {
       capacity,
       window,
-      x: CandleCache::new(capacity, x_ticker),
-      y: CandleCache::new(capacity, y_ticker),
+      x: DataCache::new(capacity, x_ticker),
+      y: DataCache::new(capacity, y_ticker),
       zscore_threshold
     }
+  }
+
+  /// ZScore of last index in a spread time series
+  pub fn zscore(series: &[f64], window: usize) -> anyhow::Result<f64> {
+    // Guard: Ensure correct window size
+    if window > series.len() {
+      return Err(anyhow::anyhow!("Window size is greater than vector length"));
+    }
+    
+    // last z score 
+    let window_data: &[f64] = &series[series.len()-window..];
+    let mean: f64 = window_data.iter().sum::<f64>() / window_data.len() as f64;
+    let var: f64 = window_data.iter().map(|&val| (val - mean).powi(2)).sum::<f64>() / (window_data.len()-1) as f64;
+    let std_dev: f64 = var.sqrt();
+    if std_dev == 0.0 {
+      return Err(anyhow::anyhow!("Standard deviation is zero"));
+    }
+    let z_score = (series[series.len()-1] - mean) / std_dev;
+    Ok(z_score)
   }
 
   pub fn signal(&mut self) -> anyhow::Result<Vec<Signal>> {
@@ -35,34 +55,42 @@ impl StatArb {
       return Ok(vec![Signal::None, Signal::None]);
     }
     
-    // let x_d = Dataset::new(self.x.vec.iter().map(|c| {
-    //   Data {
-    //     x: c.date.to_unix_ms(),
-    //     y: c.close
-    //   }
-    // }).collect());
-    let x: Vec<f64> = self.x.vec().into_par_iter().map(|c| c.close).collect();
-    // let x = x_d.y();
-    // let x_0 = self.x.vec[0];
+    let x: Vec<f64> = self.x.vec.clone().into_par_iter().map(|d| d.y).collect();
+    let x_0 = self.x.vec[0].clone();
+    let x_1 = self.x.vec[1].clone();
 
-    // let y_d = Dataset::new(self.y.vec.iter().map(|c| {
-    //   Data {
-    //     x: c.date.to_unix_ms(),
-    //     y: c.close
-    //   }
-    // }).collect());
-    let y: Vec<f64> = self.y.vec().into_par_iter().map(|c| c.close).collect();
-    // let y = y_d.y();
-    // let y_0 = self.y.vec[0];
-
-    Ok(vec![Signal::None, Signal::None])
-
-    // let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
-    //   |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
-    // )?;
-    // assert_eq!(spread.len(), y.len());
-    // assert_eq!(spread.len(), x.len());
-    //
+    let y: Vec<f64> = self.y.vec.clone().into_par_iter().map(|d| d.y).collect();
+    let y_0 = self.y.vec[0].clone();
+    let y_1 = self.y.vec[1].clone();
+    
+    if x_0.x != y_0.x || x_1.x != y_1.x {
+      warn!("Data cache timestamps are not aligned");
+      return Ok(vec![Signal::None, Signal::None]);
+    }
+    
+    let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
+      |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+    )?;
+    assert_eq!(spread.len(), y.len());
+    assert_eq!(spread.len(), x.len());
+    let s_0 = Data {
+      x: x_0.x,
+      y: spread[spread.len() - 1]
+    };
+    let s_1 = Data {
+      x: x_1.x,
+      y: spread[spread.len() - 2]
+    };
+    
+    let z_0 = Data {
+      x: x_0.x,
+      y: Self::zscore(&spread, self.window)?
+    };
+    let z_1 = Data {
+      x: x_1.x,
+      y: Self::zscore(&spread[..spread.len() - 1], self.window)?
+    };
+    
     // let zscore: Vec<f64> = rolling_zscore(&spread, self.window).map_err(
     //   |e| anyhow::anyhow!("Error calculating rolling zscore: {}", e)
     // )?;
@@ -71,47 +99,72 @@ impl StatArb {
     // let zscores = zscore.asc_order();
     // let z_0 = zscores[0].clone();
     // let z_1 = zscores[1].clone();
-    // if z_0.y != 0.0 {
-    //   println!("z: {}", z_0.y);
-    // }
-    //
-    // let enter_long = z_0.y < -self.zscore_threshold; // below -1st std dev
-    // let exit_long = z_0.y > 0.0 && z_1.y < 0.0; // returns to mean (zscore = 0)
-    //
-    // match (enter_long, exit_long) {
-    //   (true, true) => {
-    //     Err(anyhow::anyhow!("Both long and short signals detected"))
-    //   },
-    //   (true, false) => Ok(vec![
-    //     Signal::Short(SignalInfo {
-    //       price: y_0.close,
-    //       date: y_0.date,
-    //       ticker: self.y.ticker.clone()
-    //     }),
-    //     Signal::Long(SignalInfo {
-    //       price: x_0.close,
-    //       date: x_0.date,
-    //       ticker: self.x.ticker.clone()
-    //     })
-    //   ]),
-    //   (false, true) => Ok(vec![
-    //     Signal::Long(SignalInfo {
-    //       price: y_0.close,
-    //       date: y_0.date,
-    //       ticker: self.y.ticker.clone()
-    //     }),
-    //     Signal::Short(SignalInfo {
-    //       price: x_0.close,
-    //       date: x_0.date,
-    //       ticker: self.x.ticker.clone()
-    //     })
-    //   ]),
-    //   (false, false) => Ok(vec![Signal::None, Signal::None])
-    // }
+      
+    let enter_long = z_0.y < -self.zscore_threshold; // below -1st std dev
+    let exit_long = z_0.y > 0.0 && z_1.y < 0.0; // returns to mean (zscore = 0)
+
+    match (enter_long, exit_long) {
+      (true, true) => {
+        Err(anyhow::anyhow!("Both long and short signals detected"))
+      },
+      (true, false) => {
+        // Ok(vec![
+        //   Signal::Long(SignalInfo {
+        //     price: y_0.y,
+        //     date: Time::from_unix_ms(y_0.x),
+        //     ticker: self.y.id.clone()
+        //   }),
+        //   Signal::Short(SignalInfo {
+        //     price: x_0.y,
+        //     date: Time::from_unix_ms(x_0.x),
+        //     ticker: self.x.id.clone()
+        //   })
+        // ])
+        Ok(vec![
+            Signal::Short(SignalInfo {
+              price: y_0.y,
+              date: Time::from_unix_ms(y_0.x),
+              ticker: self.y.id.clone()
+            }),
+            Signal::Long(SignalInfo {
+              price: x_0.y,
+              date: Time::from_unix_ms(x_0.x),
+              ticker: self.x.id.clone() 
+          })
+        ])
+      },
+      (false, true) => {
+        // Ok(vec![
+        //   Signal::Short(SignalInfo {
+        //     price: y_0.y,
+        //     date: Time::from_unix_ms(y_0.x),
+        //     ticker: self.y.id.clone()
+        //   }),
+        //   Signal::Long(SignalInfo {
+        //     price: x_0.y,
+        //     date: Time::from_unix_ms(x_0.x),
+        //     ticker: self.x.id.clone()
+        //   })
+        // ])
+        Ok(vec![
+          Signal::Long(SignalInfo {
+              price: y_0.y,
+              date: Time::from_unix_ms(y_0.x),
+              ticker: self.y.id.clone()
+            }),
+            Signal::Short(SignalInfo {
+              price: x_0.y,
+              date: Time::from_unix_ms(x_0.x),
+              ticker: self.x.id.clone()
+            })
+        ])
+      },
+      (false, false) => Ok(vec![Signal::None, Signal::None])
+    }
   }
 }
 
-impl Strategy for StatArb {
+impl Strategy<Data<f64>> for StatArb {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
   fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     self.push_candle(candle, ticker);
@@ -120,19 +173,25 @@ impl Strategy for StatArb {
 
   fn push_candle(&mut self, candle: Candle, ticker: Option<String>) {
     if let Some(ticker) = ticker {
-      if ticker == self.x.ticker {
-        self.x.push(candle);
-      } else if ticker == self.y.ticker {
-        self.y.push(candle);
+      if ticker == self.x.id {
+        self.x.push(Data {
+          x: candle.date.to_unix_ms(),
+          y: candle.close
+        });
+      } else if ticker == self.y.id {
+        self.y.push(Data {
+          x: candle.date.to_unix_ms(),
+          y: candle.close
+        });
       }
     }
   }
 
-  fn candles(&self, ticker: Option<String>) -> Option<&CandleCache> {
+  fn cache(&self, ticker: Option<String>) -> Option<&DataCache<Data<f64>>> {
     if let Some(ticker) = ticker{ 
-      if ticker == self.x.ticker {
+      if ticker == self.x.id {
         Some(&self.x)
-      } else if ticker == self.y.ticker {
+      } else if ticker == self.y.id {
         Some(&self.y)
       } else {
         None
@@ -152,7 +211,7 @@ impl Strategy for StatArb {
 async fn btc_eth_backtest() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Op};
+  use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
   use std::collections::HashSet;
   dotenv::dotenv().ok();
@@ -160,16 +219,23 @@ async fn btc_eth_backtest() -> anyhow::Result<()> {
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
-
-  let capacity = 10_000;
+  
+  let capacity = 1_000;
   let window = 20;
+  
+  // let capacity = 10_000;
+  // let window = 100;
+  
+  // let capacity = 1000;
+  // let window = 100;
+    
   let threshold = 1.0;
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone());
   let stop_loss = 100.0;
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1);
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.02, true, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -196,9 +262,8 @@ async fn btc_eth_backtest() -> anyhow::Result<()> {
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
   backtest.backtest(stop_loss)?;
-  println!("Finished backtest");
 
-  let all_buy_and_hold = backtest.buy_and_hold(&Op::None)?;
+  let all_buy_and_hold = backtest.buy_and_hold()?;
   if let Some(trades) = backtest.trades.get(&x_ticker) {
     if !trades.is_empty() {
       let x_summary = backtest.summary(x_ticker.clone())?;

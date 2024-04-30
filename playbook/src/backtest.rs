@@ -2,8 +2,9 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::collections::HashMap;
-use time_series::{Candle, Data, Dataset, Op, Signal, Summary, Time, trunc};
+use time_series::{Candle, Data, Dataset, Signal, Summary, Time, trunc};
 use std::fs::File;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::str::FromStr;
 use lib::{Account};
@@ -31,7 +32,7 @@ pub struct Trade {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Backtest<S: Strategy> {
+pub struct Backtest<T, S: Strategy<T>> {
   pub strategy: S,
   pub capital: f64,
   /// Fee in percentage
@@ -40,9 +41,10 @@ pub struct Backtest<S: Strategy> {
   pub leverage: u8,
   pub candles: HashMap<String, Vec<Candle>>,
   pub trades: HashMap<String, Vec<Trade>>,
-  pub signals: HashMap<String, Vec<Signal>>
+  pub signals: HashMap<String, Vec<Signal>>,
+  _data: PhantomData<T>
 }
-impl<S: Strategy> Backtest<S> {
+impl<T, S: Strategy<T>> Backtest<T, S> {
   pub fn new(strategy: S, capital: f64, fee: f64, compound: bool, leverage: u8) -> Self {
     Self {
       strategy,
@@ -53,6 +55,7 @@ impl<S: Strategy> Backtest<S> {
       candles: HashMap::new(),
       trades: HashMap::new(),
       signals: HashMap::new(),
+      _data: PhantomData
     }
   }
 
@@ -192,8 +195,7 @@ impl<S: Strategy> Backtest<S> {
 
   pub fn buy_and_hold(
     &mut self,
-    op: &Op
-  ) -> anyhow::Result<HashMap<String, Vec<Data>>> {
+  ) -> anyhow::Result<HashMap<String, Vec<Data<f64>>>> {
     let mut all_data = HashMap::new();
     let candles = self.candles.clone();
     for (ticker, candles) in candles {
@@ -210,7 +212,7 @@ impl<S: Strategy> Backtest<S> {
           y: pct_pnl
         });
       }
-      all_data.insert(ticker, Dataset::new(data).translate(op));
+      all_data.insert(ticker, data);
     }
     Ok(all_data)
   }
@@ -335,7 +337,7 @@ impl<S: Strategy> Backtest<S> {
       if !index_iter_times.is_empty() {
         println!(
           "Average index iteration time: {}ms for {} indices", 
-          index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64,
+          trunc!(index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64, 1),
           index_iter_times.len()
         );
       }
