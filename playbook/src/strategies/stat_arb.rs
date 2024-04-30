@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use log::warn;
 use crate::{Strategy};
-use time_series::{Candle, Signal, CandleCache, Data, Dataset, SignalInfo};
+use time_series::{Candle, Signal, CandleCache, Data, Dataset, SignalInfo, init_logger};
 use tradestats::metrics::*;
 
 #[derive(Debug, Clone)]
@@ -61,6 +62,7 @@ impl StatArb {
     let zscores = zscore.asc_order();
     let z_0 = zscores[0].clone();
     let z_1 = zscores[1].clone();
+    println!("z: {}", z_0.y);
     
     let enter_long = z_0.y < -self.zscore_threshold; // above 1st std dev
     let exit_long = z_0.y > 0.0 && z_1.y < 0.0; // returns to mean (zscore = 0)
@@ -136,6 +138,85 @@ impl Strategy for StatArb {
 // ==========================================================================================
 
 #[tokio::test]
+async fn btc_eth_backtest() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, Op};
+  use crate::Backtest;
+  dotenv::dotenv().ok();
+
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
+
+  let x_ticker = "BTCUSDT".to_string();
+  let y_ticker = "ETHUSDT".to_string();
+  let strat = StatArb::new(20, 1.0, x_ticker.clone(), y_ticker.clone());
+  let stop_loss = 100.0;
+
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1);
+  let btc_csv = PathBuf::from("btcusdt_30m.csv");
+  let mut btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let eth_csv = PathBuf::from("ethusdt_30m.csv");
+  let mut eth_candles = backtest.csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+
+  println!("BTC candles pre clean: {}", btc_candles.len());
+  println!("ETH candles pre clean: {}", eth_candles.len());
+  
+  // retain the overlapping dates between the two time series
+  // Step 1: Create sets of timestamps from both vectors
+  let btc_dates: HashSet<i64> = btc_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  let eth_dates: HashSet<i64> = eth_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  // Step 2: Find the intersection of both timestamp sets
+  let common_timestamps: HashSet<&i64> = btc_dates.intersection(&eth_dates).collect();
+  // Step 3: Filter each vector to keep only the common timestamps
+  btc_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+  eth_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+  println!("BTC candles post retain: {}", btc_candles.len());
+  println!("ETH candles post retain: {}", eth_candles.len());
+  
+  // Step 4: Sort both vectors by timestamp to ensure they are aligned
+  // earliest point in time is 0th index, latest point in time is Nth index
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+  eth_candles.sort_by_key(|c| c.date.to_unix_ms());
+  // Append to backtest data
+  backtest.candles.insert(x_ticker.clone(), btc_candles);
+  backtest.candles.insert(y_ticker.clone(), eth_candles);
+  
+  println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
+  println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
+  backtest.backtest(stop_loss)?;
+  
+  let x_summary = backtest.summary(x_ticker.clone())?;
+  let y_summary = backtest.summary(y_ticker.clone())?;
+  let all_buy_and_hold = backtest.buy_and_hold(&Op::None)?;
+  let x_bah = all_buy_and_hold
+    .get(&x_ticker)
+    .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
+    .clone();
+  let y_bah = all_buy_and_hold
+    .get(&y_ticker)
+    .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
+    .clone();
+  Plot::plot(
+    vec![x_summary.cum_pct.data().clone(), x_bah],
+    "btcusdt_30m_stat_arb_backtest.png",
+    "BTCUSDT Stat Arb Backtest",
+    "% ROI",
+    "Unix Millis"
+  )?;
+  Plot::plot(
+    vec![y_summary.cum_pct.data().clone(), y_bah],
+    "ethusdt_30m_stat_arb_backtest.png",
+    "ETHUSDT Stat Arb Backtest",
+    "% ROI",
+    "Unix Millis"
+  )?;
+
+  Ok(())
+}
+
+#[tokio::test]
 async fn btc_eth_cointegration() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
@@ -150,27 +231,27 @@ async fn btc_eth_cointegration() -> anyhow::Result<()> {
   let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
   
-  let strat = StatArb::new(100, 1.0, "BTCUSDT".to_string(), "ETHUSDT".to_string());;
+  let x_ticker = "BTCUSDT".to_string();
+  let y_ticker = "ETHUSDT".to_string();
+  let strat = StatArb::new(100, 1.0, x_ticker.clone(), y_ticker.clone());
   
-  let mut btc = Backtest::new(strat.clone(), 0.0, 0.0, false, 1);
+  let mut backtest = Backtest::new(strat.clone(), 0.0, 0.0, false, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let btc_candles = btc.add_csv_series(&btc_csv, Some(start_time), Some(end_time))?.candles;
-
-  let mut eth = Backtest::new(strat, 0.0, 0.0, false, 1);
+  let btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
-  let eth_candles = eth.add_csv_series(&eth_csv, Some(start_time), Some(end_time))?.candles;
+  let eth_candles = backtest.csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
   
   // clean btc and eth candles so they both have the same candle dates and length
   for (btc_candle, eth_candle) in btc_candles.iter().zip(eth_candles.iter()) {
     if btc_candle.date != eth_candle.date {
       continue;
     }
-    btc.add_candle(*btc_candle);
-    eth.add_candle(*eth_candle);
+    backtest.add_candle(*btc_candle, x_ticker.clone());
+    backtest.add_candle(*eth_candle, y_ticker.clone());
   }
   
-  let x: Vec<f64> = btc.candles.iter().map(|c| c.close).collect();
-  let y: Vec<f64> = eth.candles.iter().map(|c| c.close).collect();
+  let x: Vec<f64> = backtest.candles.get(&x_ticker).unwrap().iter().map(|c| c.close).collect();
+  let y: Vec<f64> = backtest.candles.get(&y_ticker).unwrap().iter().map(|c| c.close).collect();
   let x = log_returns(&x, false);
   let y = log_returns(&y, false);
   assert_eq!(x.len(), y.len());
