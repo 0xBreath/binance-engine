@@ -148,7 +148,6 @@ impl Summary {
         let dd = ((point.y - peak) / peak * 100.0).max(-100.0);
         if dd < max_dd {
           max_dd = dd;
-          println!("dd: {}, peak: {}, trough: {}", trunc!(max_dd, 2), peak, point.y);
         }
       }
     }

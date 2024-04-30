@@ -7,6 +7,7 @@ pub mod trade;
 pub mod candle_cache;
 pub mod kagi;
 pub mod data;
+pub mod generic_cache;
 
 pub use candle::*;
 pub use time::*;
@@ -15,6 +16,7 @@ pub use trade::*;
 pub use candle_cache::*;
 pub use kagi::*;
 pub use data::*;
+pub use generic_cache::*;
 
 use log::*;
 use simplelog::{

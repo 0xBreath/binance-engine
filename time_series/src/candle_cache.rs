@@ -26,4 +26,9 @@ impl CandleCache {
   pub fn recent(&self) -> Option<&Candle> {
     self.vec.front()
   }
+  
+  // convert VecDeque to slice
+  pub fn vec(&self) -> Vec<Candle> {
+    self.vec.iter().cloned().collect::<Vec<Candle>>()
+  }
 }

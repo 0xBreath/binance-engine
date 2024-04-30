@@ -2,7 +2,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::collections::HashMap;
-use time_series::{Candle, Data, Dataset, Op, Signal, SignalInfo, Summary, Time, trunc};
+use time_series::{Candle, Data, Dataset, Op, Signal, Summary, Time, trunc};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -65,7 +65,7 @@ impl<S: Strategy> Backtest<S> {
     csv_path: &PathBuf,
     start_time: Option<Time>,
     end_time: Option<Time>,
-    ticker: String
+    _ticker: String
   ) -> anyhow::Result<CsvSeries> {
     let file_buffer = File::open(csv_path)?;
     let mut csv = csv::Reader::from_reader(file_buffer);
@@ -221,125 +221,126 @@ impl<S: Strategy> Backtest<S> {
   ) -> anyhow::Result<()> {
     let capital = self.capital;
     let candles = self.candles.clone();
+    
+    let pre_backtest = std::time::SystemTime::now();
+    if let Some((_, first_series)) = candles.iter().next() {
+      let length = first_series.len();
 
-    // let len = candles.iter().next().ok_or(anyhow::anyhow!("No first series"))?.1.len();
-    // for i in 0..len {
-    //   
-    // }
-    // 
-    // if let Some((_, first_series)) = candles.iter().next() {
-    //   let length = first_series.len();
-    // 
-    //   // Iterate over the index of each series
-    //   for i in 0..length {
-    //     // Access the i-th element of each vector
-    //     for (ticker, candles) in candles.iter() {
-    //       println!("{} at index {}: {}", key, i, series[i]);
-    //     }
-    //     println!("---"); // Separator for clarity
-    //   }
-    // }
-
-    // chain iterate all Vec<Candles> in the HashMap
-    for series in candles.values() {
-      for candles in series.windows(2) {
-        let entry = candles[0];
-        let exit = candles[1];
-        let pct_pnl = ((exit.close - entry.close) / entry.close) * 100.0;
-        println!("pct pnl: {}", pct_pnl);
+      let mut active_trades: HashMap<String, Option<Trade>> = HashMap::new();
+      for (ticker, _) in candles.iter() {
+        // populate active trades with None values for each ticker so getter doesn't panic
+        active_trades.insert(ticker.clone(), None);
+        // populate trades with empty vec for each ticker so getter doesn't panic
+        self.trades.insert(ticker.clone(), vec![]);
       }
-    }
-
-    for (ticker, candles) in candles {
-      let mut active_trade: Option<Trade> = None;
-      for candle in candles {
-        self.strategy.process_candle(candle, Some(ticker.clone()))?;
-        // check if stop loss is hit
-        if let Some(trade) = &active_trade {
-          let time = candle.date;
-          match trade.side {
-            Order::Long => {
-              let price = candle.low;
-              let pct_diff = (price - trade.price) / trade.price * 100.0;
-              if pct_diff < stop_loss * -1.0 {
-                let price_at_stop_loss = trade.price * (1.0 - stop_loss / 100.0);
-                let trade = Trade {
-                  ticker: ticker.clone(),
-                  date: time,
-                  side: Order::Short,
-                  quantity: trade.quantity,
-                  price: price_at_stop_loss,
-                };
-                active_trade = None;
-                self.add_trade(trade, ticker.clone());
+    
+      // Iterate over the index of each series
+      let mut index_iter_times = vec![];
+      for i in 0..length {
+        // Access the i-th element of each vector to simulate getting price update 
+        // for every ticker at roughly the same time
+        let mut iter_times: Vec<u128> = vec![];
+        for (ticker, candles) in candles.iter() {
+          let now = std::time::SystemTime::now();
+          let candle = candles[i];
+          
+          // check if stop loss is hit
+          if let Some(trade) = active_trades.get(ticker).unwrap() {
+            let time = candle.date;
+            match trade.side {
+              Order::Long => {
+                let price = candle.low;
+                let pct_diff = (price - trade.price) / trade.price * 100.0;
+                if pct_diff < stop_loss * -1.0 {
+                  let price_at_stop_loss = trade.price * (1.0 - stop_loss / 100.0);
+                  let trade = Trade {
+                    ticker: ticker.clone(),
+                    date: time,
+                    side: Order::Short,
+                    quantity: trade.quantity,
+                    price: price_at_stop_loss,
+                  };
+                  active_trades.insert(ticker.clone(), None);
+                  self.add_trade(trade, ticker.clone());
+                }
               }
-            }
-            Order::Short => {
-              let price = candle.high;
-              let pct_diff = (price - trade.price) / trade.price * 100.0;
-              if pct_diff > stop_loss {
-                let price_at_stop_loss = trade.price * (1.0 + stop_loss / 100.0);
-                let trade = Trade {
-                  ticker: ticker.clone(),
-                  date: time,
-                  side: Order::Long,
-                  quantity: trade.quantity,
-                  price: price_at_stop_loss,
-                };
-                active_trade = None;
-                self.add_trade(trade, ticker.clone());
+              Order::Short => {
+                let price = candle.high;
+                let pct_diff = (price - trade.price) / trade.price * 100.0;
+                if pct_diff > stop_loss {
+                  let price_at_stop_loss = trade.price * (1.0 + stop_loss / 100.0);
+                  let trade = Trade {
+                    ticker: ticker.clone(),
+                    date: time,
+                    side: Order::Long,
+                    quantity: trade.quantity,
+                    price: price_at_stop_loss,
+                  };
+                  active_trades.insert(ticker.clone(), None);
+                  self.add_trade(trade, ticker.clone());
+                }
               }
             }
           }
-        }
-
-        // place new trade if signal is present
-        let signals = self.strategy.process_candle(candle, Some(ticker.clone()))?;
-        for signal in signals {
-          match signal {
-            Signal::Long(info) => {
-              if info.ticker == ticker {
-                if let Some(trade) = &active_trade {
-                  if trade.side == Order::Long {
-                    continue;
+        
+          // place new trade if signal is present
+          let signals = self.strategy.process_candle(candle, Some(ticker.clone()))?;
+          for signal in signals {
+            match signal {
+              Signal::Long(info) => {
+                if &info.ticker == ticker {
+                  if let Some(trade) = active_trades.get(ticker).unwrap() {
+                    if trade.side == Order::Long {
+                      continue;
+                    }
                   }
+                  let quantity = capital / info.price;
+                  let trade = Trade {
+                    ticker: info.ticker.clone(),
+                    date: info.date,
+                    side: Order::Long,
+                    quantity,
+                    price: info.price,
+                  };
+                  active_trades.insert(ticker.clone(), Some(trade.clone()));
+                  self.add_trade(trade, ticker.clone());
                 }
-                let quantity = capital / info.price;
-                let trade = Trade {
-                  ticker: info.ticker.clone(),
-                  date: info.date,
-                  side: Order::Long,
-                  quantity,
-                  price: info.price,
-                };
-                active_trade = Some(trade.clone());
-                self.add_trade(trade, ticker.clone());
-              }
-            },
-            Signal::Short(info) => {
-              if info.ticker == ticker {
-                if let Some(trade) = &active_trade {
-                  if trade.side == Order::Short {
-                    continue;
+              },
+              Signal::Short(info) => {
+                if &info.ticker == ticker {
+                  if let Some(trade) = active_trades.get(ticker).unwrap() {
+                    if trade.side == Order::Short {
+                      continue;
+                    }
                   }
+                  let quantity = capital / info.price;
+                  let trade = Trade {
+                    ticker: ticker.clone(),
+                    date: info.date,
+                    side: Order::Short,
+                    quantity,
+                    price: info.price,
+                  };
+                  active_trades.insert(ticker.clone(), Some(trade.clone()));
+                  self.add_trade(trade, ticker.clone());
                 }
-                let quantity = capital / info.price;
-                let trade = Trade {
-                  ticker: ticker.clone(),
-                  date: info.date,
-                  side: Order::Short,
-                  quantity,
-                  price: info.price,
-                };
-                active_trade = Some(trade.clone());
-                self.add_trade(trade, ticker.clone());
-              }
-            },
-            Signal::None => ()
+              },
+              Signal::None => ()
+            }
           }
+          iter_times.push(now.elapsed().unwrap().as_millis());
         }
+        index_iter_times.push(iter_times.iter().sum::<u128>() as f64 / iter_times.len() as f64);
+      }
+      if !index_iter_times.is_empty() {
+        println!(
+          "Average index iteration time: {}ms for {} indices", 
+          index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64,
+          index_iter_times.len()
+        );
       }
     }
+    println!("Backtest lasted: {:?}s", pre_backtest.elapsed().unwrap().as_secs_f64());
 
     Ok(())
   }
