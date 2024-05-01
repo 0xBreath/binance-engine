@@ -176,8 +176,8 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   use std::collections::HashSet;
   dotenv::dotenv().ok();
 
-  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
   let capacity = 100;
@@ -236,13 +236,10 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         "Unix Millis"
       )?;
       
-      let pcts = x_summary.pct_per_trade.data().iter().map(|d| d.y).collect::<Vec<f64>>();
-      let cum_pct_zscores = rolling_zscore(&pcts, 20).unwrap();
-      let data = cum_pct_zscores.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect();
       Plot::plot(
-        vec![data],
-        "stat_arb_btc_zscore.png",
-        "BTCUSDT Stat Arb Z Score Profit",
+        vec![x_summary.pct_per_trade.data().clone()],
+        "stat_arb_btc_trades.png",
+        "BTCUSDT Stat Arb Trades",
         "% ROI",
         "Unix Millis"
       )?;
@@ -265,14 +262,11 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-
-      let pcts = y_summary.pct_per_trade.data().iter().map(|d| d.y).collect::<Vec<f64>>();
-      let cum_pct_zscores = rolling_zscore(&pcts, 20).unwrap();
-      let data = cum_pct_zscores.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect();
+      
       Plot::plot(
-        vec![data],
-        "stat_arb_eth_zscore.png",
-        "ETHUSDT Stat Arb Z Score Profit",
+        vec![y_summary.pct_per_trade.data().clone()],
+        "stat_arb_eth_trades.png",
+        "ETHUSDT Stat Arb Trades",
         "% ROI",
         "Unix Millis"
       )?;
