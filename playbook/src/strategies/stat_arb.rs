@@ -1,7 +1,7 @@
 use log::warn;
 use rayon::prelude::*;
 use crate::Strategy;
-use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
+use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time, init_logger};
 use tradestats::metrics::*;
 
 #[derive(Debug, Clone)]
@@ -49,86 +49,103 @@ impl StatArb {
     Ok(z_score)
   }
 
-  pub fn signal(&mut self) -> anyhow::Result<Vec<Signal>> {
-    if self.x.vec.len() < self.x.capacity || self.y.vec.len() < self.y.capacity {
-      warn!("Insufficient candles to generate signal");
-      return Ok(vec![Signal::None, Signal::None]);
+  pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Signal> {
+    match ticker {
+      None => Ok(Signal::None),
+      Some(ticker) => {
+        if self.x.vec.len() < self.x.capacity || self.y.vec.len() < self.y.capacity {
+          warn!("Insufficient candles to generate signal");
+          return Ok(Signal::None);
+        }
+
+        let x: Vec<f64> = self.x.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
+        let x_0 = self.x.vec[0].clone();
+        let x_1 = self.x.vec[1].clone();
+
+        let y: Vec<f64> = self.y.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
+        let y_0 = self.y.vec[0].clone();
+        let y_1 = self.y.vec[1].clone();
+
+        // Force alignment on previous bars for both time series.
+        // Current bar is not required as the trade would only occur for the last time series update to arrive.
+        // if x_1.x != y_1.x {
+        //   warn!("Data cache timestamps are not aligned");
+        //   return Ok(Signal::None);
+        // }
+
+        let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
+          |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+        )?;
+        assert_eq!(spread.len(), y.len());
+        assert_eq!(spread.len(), x.len());
+        let lag_spread = spread[..spread.len()-1].to_vec();
+
+        let z_0 = Data {
+          x: x_0.x,
+          y: Self::zscore(&spread, self.window)?
+        };
+        let z_1 = Data {
+          x: x_0.x,
+          y: Self::zscore(&lag_spread, self.window)?
+        };
+
+        // spread down means y down or x up
+        let long = z_0.y < -self.zscore_threshold;
+        // spread up means y up or x down
+        let short = z_0.y > 0.0 && z_1.y < 0.0;
+
+        match (long, short) {
+          (true, true) => {
+            Err(anyhow::anyhow!("Both long and short signals detected"))
+          },
+          (true, false) => {
+            if ticker == self.x.id {
+              Ok(Signal::Short(SignalInfo {
+                price: x_0.y,
+                date: Time::from_unix_ms(x_0.x),
+                ticker: self.x.id.clone()
+              }))
+            } else if ticker == self.y.id {
+              Ok(Signal::Long(SignalInfo {
+                price: y_0.y,
+                date: Time::from_unix_ms(y_0.x),
+                ticker: self.y.id.clone()
+              }))
+            } else {
+              Ok(Signal::None)
+            }
+          },
+          (false, true) => {
+
+            if ticker == self.x.id {
+              Ok(Signal::Long(SignalInfo {
+                price: x_0.y,
+                date: Time::from_unix_ms(x_0.x),
+                ticker: self.x.id.clone()
+              }))
+            } else if ticker == self.y.id {
+              Ok(Signal::Short(SignalInfo {
+                price: y_0.y,
+                date: Time::from_unix_ms(y_0.x),
+                ticker: self.y.id.clone()
+              }))
+            } else {
+              Ok(Signal::None)
+            }
+          },
+          (false, false) => Ok(Signal::None)
+        }
+      }
     }
-    
-    let x: Vec<f64> = self.x.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
-    let x_0 = self.x.vec[0].clone();
 
-    let y: Vec<f64> = self.y.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
-    let y_0 = self.y.vec[0].clone();
-
-    if x_0.x != y_0.x {
-      warn!("Data cache timestamps are not aligned");
-      return Ok(vec![Signal::None, Signal::None]);
-    }
-    
-    let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
-      |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
-    )?;
-    assert_eq!(spread.len(), y.len());
-    assert_eq!(spread.len(), x.len());
-    let lag_spread = spread[..spread.len()-1].to_vec();
-
-    let z_0 = Data {
-      x: x_0.x,
-      y: Self::zscore(&spread, self.window)?
-    };
-    let z_1 = Data {
-      x: x_0.x,
-      y: Self::zscore(&lag_spread, self.window)?
-    };
-
-    // spread down means y down or x up
-    let long = z_0.y < -self.zscore_threshold;
-    // spread up means y up or x down
-    let short = z_0.y > 0.0 && z_1.y < 0.0;
-
-    match (long, short) {
-      (true, true) => {
-        Err(anyhow::anyhow!("Both long and short signals detected"))
-      },
-      (true, false) => {
-        Ok(vec![
-          Signal::Long(SignalInfo {
-            price: y_0.y,
-            date: Time::from_unix_ms(y_0.x),
-            ticker: self.y.id.clone()
-          }),
-          Signal::Short(SignalInfo {
-            price: x_0.y,
-            date: Time::from_unix_ms(x_0.x),
-            ticker: self.x.id.clone()
-          })
-        ])
-      },
-      (false, true) => {
-        Ok(vec![
-          Signal::Short(SignalInfo {
-            price: y_0.y,
-            date: Time::from_unix_ms(y_0.x),
-            ticker: self.y.id.clone()
-          }),
-          Signal::Long(SignalInfo {
-            price: x_0.y,
-            date: Time::from_unix_ms(x_0.x),
-            ticker: self.x.id.clone()
-          })
-        ])
-      },
-      (false, false) => Ok(vec![Signal::None, Signal::None])
-    }
   }
 }
 
 impl Strategy<Data<f64>> for StatArb {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
-    self.push_candle(candle, ticker);
-    self.signal()
+  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Signal> {
+    self.push_candle(candle, ticker.clone());
+    self.signal(ticker)
   }
 
   fn push_candle(&mut self, candle: Candle, ticker: Option<String>) {
@@ -235,7 +252,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-      
+
       Plot::plot(
         vec![x_summary.pct_per_trade.data().clone()],
         "stat_arb_btc_trades.png",
@@ -243,7 +260,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-      
+
     }
   }
   if let Some(trades) = backtest.trades.get(&y_ticker) {
@@ -262,7 +279,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-      
+
       Plot::plot(
         vec![y_summary.pct_per_trade.data().clone()],
         "stat_arb_eth_trades.png",

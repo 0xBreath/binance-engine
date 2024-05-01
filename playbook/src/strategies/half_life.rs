@@ -46,68 +46,73 @@ impl HalfLife {
     Ok(z_score)
   }
 
-  pub fn signal(&mut self) -> anyhow::Result<Vec<Signal>> {
-    if self.cache.vec.len() < self.cache.capacity {
-      warn!("Insufficient candles to generate signal");
-      return Ok(vec![Signal::None, Signal::None]);
-    }
-
-    // most recent value is 0th index, so this is revered to get oldest to newest
-    let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
-    let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
-    let lag_spread = spread[..spread.len()-1].to_vec();
+  pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Signal> {
+    match ticker {
+      None => Ok(Signal::None),
+      Some(ticker) => {
+        if self.cache.vec.len() < self.cache.capacity {
+          warn!("Insufficient candles to generate signal");
+          return Ok(Signal::None);
+        }
+        if ticker != self.cache.id {
+          return Ok(Signal::None);
+        }
     
-    let y_0 = self.cache.vec[0].clone();
-    let y_1 = self.cache.vec[1].clone();
-
-    let z_0 = Data {
-      x: y_0.x,
-      y: Self::zscore(&spread, self.window)?
-    };
-    let z_1 = Data {
-      x: y_1.x,
-      y: Self::zscore(&lag_spread, self.window)?
-    };
-
-    // inverted but somehow works
-    // let short = z_0.y < -self.zscore_threshold;
-    // let long = z_0.y > 0.0 && z_1.y < 0.0;
-
-    let long = z_0.y < -self.zscore_threshold;
-    let short = z_0.y > 0.0 && z_1.y < 0.0;
-
-    match (long, short) {
-      (true, true) => {
-        Err(anyhow::anyhow!("Both long and short signals detected"))
-      },
-      (true, false) => {
-        Ok(vec![
-          Signal::Long(SignalInfo {
-            price: y_0.y,
-            date: Time::from_unix_ms(y_0.x),
-            ticker: self.cache.id.clone()
-          }),
-        ])
-      },
-      (false, true) => {
-        Ok(vec![
-          Signal::Short(SignalInfo {
-            price: y_0.y,
-            date: Time::from_unix_ms(y_0.x),
-            ticker: self.cache.id.clone()
-          }),
-        ])
-      },
-      (false, false) => Ok(vec![Signal::None, Signal::None])
+        // most recent value is 0th index, so this is revered to get oldest to newest
+        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
+        let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
+        let lag_spread = spread[..spread.len()-1].to_vec();
+        
+        let y_0 = self.cache.vec[0].clone();
+        let y_1 = self.cache.vec[1].clone();
+    
+        let z_0 = Data {
+          x: y_0.x,
+          y: Self::zscore(&spread, self.window)?
+        };
+        let z_1 = Data {
+          x: y_1.x,
+          y: Self::zscore(&lag_spread, self.window)?
+        };
+    
+        // inverted but somehow works
+        // let short = z_0.y < -self.zscore_threshold;
+        // let long = z_0.y > 0.0 && z_1.y < 0.0;
+    
+        let long = z_0.y < -self.zscore_threshold;
+        let short = z_0.y > 0.0 && z_1.y < 0.0;
+    
+        match (long, short) {
+          (true, true) => {
+            Err(anyhow::anyhow!("Both long and short signals detected"))
+          },
+          (true, false) => {
+            Ok(Signal::Long(SignalInfo {
+              price: y_0.y,
+              date: Time::from_unix_ms(y_0.x),
+              ticker: ticker.clone()
+            }))
+          },
+          (false, true) => {
+            Ok(Signal::Short(SignalInfo {
+              price: y_0.y,
+              date: Time::from_unix_ms(y_0.x),
+              ticker: ticker.clone()
+            }))
+          },
+          (false, false) => Ok(Signal::None)
+        }
+        
+      }
     }
   }
 }
 
 impl Strategy<Data<f64>> for HalfLife {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
-    self.push_candle(candle, ticker);
-    self.signal()
+  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Signal> {
+    self.push_candle(candle, ticker.clone());
+    self.signal(ticker)
   }
 
   fn push_candle(&mut self, candle: Candle, ticker: Option<String>) {

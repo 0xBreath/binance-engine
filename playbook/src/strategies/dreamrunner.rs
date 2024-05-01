@@ -140,10 +140,9 @@ impl Dreamrunner {
 
 impl Strategy<Candle> for Dreamrunner {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle, _ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
-    // pushes to front of VecDeque and pops the back if at capacity
+  fn process_candle(&mut self, candle: Candle, _ticker: Option<String>) -> anyhow::Result<Signal> {
     self.candles.push(candle);
-    Ok(vec![self.signal()?])
+    self.signal()
   }
 
   fn push_candle(&mut self, candle: Candle, _ticker: Option<String>) {

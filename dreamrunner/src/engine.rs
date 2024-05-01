@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::marker::PhantomData;
 use lib::*;
 use log::*;
 use serde::de::DeserializeOwned;
@@ -22,7 +23,8 @@ pub struct Engine<T, S: Strategy<T>> {
   pub equity_pct: f64,
   pub active_order: ActiveOrder,
   pub assets: Assets,
-  pub strategy: S
+  pub strategy: S,
+  _data: PhantomData<T>
 }
 
 impl<T, S: Strategy<T>> Engine<T, S> {
@@ -51,7 +53,8 @@ impl<T, S: Strategy<T>> Engine<T, S> {
       equity_pct,
       active_order: ActiveOrder::new(),
       assets: Assets::default(),
-      strategy
+      strategy,
+      _data: PhantomData
     }
   }
 
@@ -69,7 +72,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     // if we fetch the entire period, the most recent candle could be old.
     // for example: 15m candles, closed at 1:00pm, we fetch at 1:14pm, we trade using old data.
     // so we fetch one less than the rolling period and wait for the next candle to close to ensure we trade immediately.
-    let candles = self.strategy.candles(None).ok_or(DreamrunnerError::CandleCacheMissing)?;
+    let candles = self.strategy.cache(None).ok_or(DreamrunnerError::CandleCacheMissing)?;
     self.load_recent_candles(Some(candles.capacity as u16)).await?;
 
     info!("🚀 Starting Dreamrunner!");
@@ -130,13 +133,13 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   }
 
   /// Place a trade
-  pub async fn trade<T: DeserializeOwned>(&self, trade: BinanceTrade) -> DreamrunnerResult<T> {
+  pub async fn trade<D: DeserializeOwned>(&self, trade: BinanceTrade) -> DreamrunnerResult<D> {
     let req = trade.request();
-    self.client.post_signed::<T>(API::Spot(Spot::Order), req).await
+    self.client.post_signed::<D>(API::Spot(Spot::Order), req).await
   }
 
-  pub async fn trade_or_reset<T: DeserializeOwned>(&mut self, trade: BinanceTrade) -> DreamrunnerResult<T> {
-    match self.trade::<T>(trade.clone()).await {
+  pub async fn trade_or_reset<D: DeserializeOwned>(&mut self, trade: BinanceTrade) -> DreamrunnerResult<D> {
+    match self.trade::<D>(trade.clone()).await {
       Ok(res) => Ok(res),
       Err(e) => {
         let order_type = ActiveOrder::client_order_id_suffix(&trade.client_order_id);
@@ -231,7 +234,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   }
 
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
-    let signal = self.strategy.process_candle(candle, None)?[0].clone();
+    let signal = self.strategy.process_candle(candle, None)?;
     match &self.active_order.entry {
       None => {
         if Signal::None != signal {
