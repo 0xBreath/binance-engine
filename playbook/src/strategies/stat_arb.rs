@@ -92,25 +92,13 @@ impl StatArb {
         Err(anyhow::anyhow!("Both long and short signals detected"))
       },
       (true, false) => {
-        // Ok(vec![
-        //   Signal::Long(SignalInfo {
-        //     price: y_0.y,
-        //     date: Time::from_unix_ms(y_0.x),
-        //     ticker: self.y.id.clone()
-        //   }),
-        //   Signal::Short(SignalInfo {
-        //     price: x_0.y,
-        //     date: Time::from_unix_ms(x_0.x),
-        //     ticker: self.x.id.clone()
-        //   })
-        // ])
         Ok(vec![
-          Signal::Short(SignalInfo {
+          Signal::Long(SignalInfo {
             price: y_0.y,
             date: Time::from_unix_ms(y_0.x),
             ticker: self.y.id.clone()
           }),
-          Signal::Long(SignalInfo {
+          Signal::Short(SignalInfo {
             price: x_0.y,
             date: Time::from_unix_ms(x_0.x),
             ticker: self.x.id.clone()
@@ -118,25 +106,13 @@ impl StatArb {
         ])
       },
       (false, true) => {
-        // Ok(vec![
-        //   Signal::Short(SignalInfo {
-        //     price: y_0.y,
-        //     date: Time::from_unix_ms(y_0.x),
-        //     ticker: self.y.id.clone()
-        //   }),
-        //   Signal::Long(SignalInfo {
-        //     price: x_0.y,
-        //     date: Time::from_unix_ms(x_0.x),
-        //     ticker: self.x.id.clone()
-        //   })
-        // ])
         Ok(vec![
-          Signal::Long(SignalInfo {
+          Signal::Short(SignalInfo {
             price: y_0.y,
             date: Time::from_unix_ms(y_0.x),
             ticker: self.y.id.clone()
           }),
-          Signal::Short(SignalInfo {
+          Signal::Long(SignalInfo {
             price: x_0.y,
             date: Time::from_unix_ms(x_0.x),
             ticker: self.x.id.clone()
@@ -254,14 +230,13 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         .clone();
       Plot::plot(
         vec![x_summary.cum_pct.data().clone(), x_bah],
-        "btcusdt_30m_stat_arb_backtest.png",
+        "stat_arb_btc_backtest.png",
         "BTCUSDT Stat Arb Backtest",
         "% ROI",
         "Unix Millis"
       )?;
     }
   }
-
   if let Some(trades) = backtest.trades.get(&y_ticker) {
     if trades.len() > 1 {
       let y_summary = backtest.summary(y_ticker.clone())?;
@@ -273,13 +248,14 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         .clone();
       Plot::plot(
         vec![y_summary.cum_pct.data().clone(), y_bah],
-        "ethusdt_30m_stat_arb_backtest.png",
+        "stat_arb_eth_backtest.png",
         "ETHUSDT Stat Arb Backtest",
         "% ROI",
         "Unix Millis"
       )?;
     }
   }
+
 
   Ok(())
 }

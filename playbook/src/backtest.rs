@@ -222,7 +222,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
   ) -> anyhow::Result<()> {
     let capital = self.capital;
     let candles = self.candles.clone();
-    
+
     let pre_backtest = std::time::SystemTime::now();
     if let Some((_, first_series)) = candles.iter().next() {
       let length = first_series.len();
@@ -234,17 +234,17 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
         // populate trades with empty vec for each ticker so getter doesn't panic
         self.trades.insert(ticker.clone(), vec![]);
       }
-    
+
       // Iterate over the index of each series
       let mut index_iter_times = vec![];
       for i in 0..length {
-        // Access the i-th element of each vector to simulate getting price update 
+        // Access the i-th element of each vector to simulate getting price update
         // for every ticker at roughly the same time
         let mut iter_times: Vec<u128> = vec![];
         for (ticker, candles) in candles.iter() {
           let now = std::time::SystemTime::now();
           let candle = candles[i];
-          
+
           // check if stop loss is hit
           if let Some(trade) = active_trades.get(ticker).unwrap() {
             let time = candle.date;
@@ -283,48 +283,44 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
               }
             }
           }
-        
+
           // place new trade if signal is present
           let signals = self.strategy.process_candle(candle, Some(ticker.clone()))?;
           for signal in signals {
             match signal {
               Signal::Long(info) => {
-                if &info.ticker == ticker {
-                  if let Some(trade) = active_trades.get(ticker).unwrap() {
-                    if trade.side == Order::Long {
-                      continue;
-                    }
+                if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                  if trade.side == Order::Long {
+                    continue;
                   }
-                  let quantity = capital / info.price;
-                  let trade = Trade {
-                    ticker: info.ticker.clone(),
-                    date: info.date,
-                    side: Order::Long,
-                    quantity,
-                    price: info.price,
-                  };
-                  active_trades.insert(ticker.clone(), Some(trade.clone()));
-                  self.add_trade(trade, ticker.clone());
                 }
+                let quantity = capital / info.price;
+                let trade = Trade {
+                  ticker: info.ticker.clone(),
+                  date: info.date,
+                  side: Order::Long,
+                  quantity,
+                  price: info.price,
+                };
+                active_trades.insert(info.ticker.clone(), Some(trade.clone()));
+                self.add_trade(trade, info.ticker.clone());
               },
               Signal::Short(info) => {
-                if &info.ticker == ticker {
-                  if let Some(trade) = active_trades.get(ticker).unwrap() {
-                    if trade.side == Order::Short {
-                      continue;
-                    }
+                if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                  if trade.side == Order::Short {
+                    continue;
                   }
-                  let quantity = capital / info.price;
-                  let trade = Trade {
-                    ticker: ticker.clone(),
-                    date: info.date,
-                    side: Order::Short,
-                    quantity,
-                    price: info.price,
-                  };
-                  active_trades.insert(ticker.clone(), Some(trade.clone()));
-                  self.add_trade(trade, ticker.clone());
                 }
+                let quantity = capital / info.price;
+                let trade = Trade {
+                  ticker: info.ticker.clone(),
+                  date: info.date,
+                  side: Order::Short,
+                  quantity,
+                  price: info.price,
+                };
+                active_trades.insert(info.ticker.clone(), Some(trade.clone()));
+                self.add_trade(trade, info.ticker.clone());
               },
               Signal::None => ()
             }
@@ -335,7 +331,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
       }
       if !index_iter_times.is_empty() {
         println!(
-          "Average index iteration time: {}us for {} indices", 
+          "Average index iteration time: {}us for {} indices",
           trunc!(index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64, 1),
           index_iter_times.len()
         );

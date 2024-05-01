@@ -199,7 +199,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   summary.print();
   Plot::plot(
     vec![summary.cum_pct.0, buy_and_hold],
-    "solusdt_30m_dreamrunner_backtest.png",
+    "dreamrunner_sol_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
     "% ROI",
     "Unix Millis"

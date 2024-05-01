@@ -198,7 +198,7 @@ async fn btc_half_life() -> anyhow::Result<()> {
         .clone();
       Plot::plot(
         vec![summary.cum_pct.data().clone(), bah],
-        "btc_half_life_backtest.png",
+        "half_life_btc_backtest.png",
         "BTCUSDT Half Life Backtest",
         "% ROI",
         "Unix Millis"
