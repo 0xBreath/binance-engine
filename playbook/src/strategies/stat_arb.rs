@@ -73,24 +73,18 @@ impl StatArb {
     assert_eq!(spread.len(), x.len());
     let lag_spread = spread[..spread.len()-1].to_vec();
 
-    // let half_life = half_life(&spread).unwrap();
-    // let window = half_life.abs().round() as usize;
-    let window = self.window;
-
     let z_0 = Data {
       x: x_0.x,
-      y: Self::zscore(&spread, window)?
+      y: Self::zscore(&spread, self.window)?
     };
     let z_1 = Data {
       x: x_0.x,
-      y: Self::zscore(&lag_spread, window)?
+      y: Self::zscore(&lag_spread, self.window)?
     };
 
-    // THIS IS GOOD FOR ETHUSDT
-    // let long = z_0.y < -self.zscore_threshold;
-    // let short = z_0.y > self.zscore_threshold;
-
+    // spread down means y down or x up
     let long = z_0.y < -self.zscore_threshold;
+    // spread up means y up or x down
     let short = z_0.y > 0.0 && z_1.y < 0.0;
 
     match (long, short) {
@@ -198,7 +192,7 @@ impl Strategy<Data<f64>> for StatArb {
 // ==========================================================================================
 
 #[tokio::test]
-async fn btc_eth_backtest() -> anyhow::Result<()> {
+async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot};
@@ -210,20 +204,20 @@ async fn btc_eth_backtest() -> anyhow::Result<()> {
   // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
-  let capacity = 1_000;
-  let window = 20;
+  let capacity = 100;
+  let window = 10;
   let threshold = 2.0;
+  let stop_loss = 0.1;
   
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone());
-  let stop_loss = 100.0;
 
   let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let mut btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
-  let mut eth_candles = backtest.csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+  let mut eth_candles = Backtest::<Data<f64>, StatArb>::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
 
   // retain the overlapping dates between the two time series
   // Step 1: Create sets of timestamps from both vectors
@@ -312,9 +306,9 @@ async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
 
   let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let mut btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
-  let mut eth_candles = backtest.csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+  let mut eth_candles = Backtest::<Data<f64>, StatArb>::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
 
   // retain the overlapping dates between the two time series
   // Step 1: Create sets of timestamps from both vectors
@@ -404,9 +398,9 @@ async fn btc_eth_cointegration() -> anyhow::Result<()> {
 
   let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let mut btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
-  let mut eth_candles = backtest.csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+  let mut eth_candles = Backtest::<Data<f64>, StatArb>::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
 
   // retain the overlapping dates between the two time series
   // Step 1: Create sets of timestamps from both vectors

@@ -143,7 +143,7 @@ impl Strategy<Data<f64>> for HalfLife {
 async fn btc_half_life() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, trunc, Dataset};
+  use time_series::{Time, Day, Month, Plot, trunc};
   use crate::Backtest;
   use tradestats::metrics::*;
   dotenv::dotenv().ok();
@@ -156,39 +156,36 @@ async fn btc_half_life() -> anyhow::Result<()> {
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
   let stop_loss = 0.1;
-
-  let mut strat = HalfLife::new(capacity, 10, threshold, ticker.clone());
-
-  let mut backtest = Backtest::new(strat.clone(), 1_000.0, 0.02, true, 1);
+  
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let mut btc_candles = backtest.csv_series(&btc_csv, Some(start_time), Some(end_time), ticker.clone())?.candles;
+  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+    &btc_csv, 
+    Some(start_time), 
+    Some(end_time), 
+    ticker.clone()
+  )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
-  backtest.candles.insert(ticker.clone(), btc_candles);
-  println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
   // convert to natural log to linearize time series
-  let series: Vec<f64> = backtest.candles.get(&ticker).unwrap().clone().into_iter().map(|d| d.close.ln()).collect();
+  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
 
-  // todo: half life of in-sample data. this is introducing out-of-sample data into the backtest
+  // half life of in-sample data (index 0 to 1000)
   let in_sample: Vec<f64> = series.clone().into_iter().take(1000).collect();
   let half_life = half_life(&in_sample).unwrap();
   println!("{} half-life: {} bars", ticker, trunc!(half_life, 1));
-  let window = half_life.abs().round() as usize;
-  strat.window = window;
-  let series = series[1000..].to_vec();
-
-  let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
-
-  let zscore: Vec<f64> = rolling_zscore(&spread, window).unwrap();
-  let zscore = Dataset::new(zscore.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
-
-  Plot::plot(
-    vec![zscore.data().clone()],
-    "btc_half_life_zscore.png",
-    "BTC Half Life Z Score",
-    "Z Score",
-    "Time"
-  )?;
+  // use this half-life as the strategy window
+  // let window = half_life.abs().round() as usize;
+  let window = 10;
+  
+  let strat = HalfLife::new(capacity, window, threshold, ticker.clone());
+  let mut backtest = Backtest::new(strat.clone(), 1_000.0, 0.02, true, 1);
+  // backtest.candles.insert(ticker.clone(), btc_candles.clone());
+  // println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
+  
+  // out-of-sample data (index 1000 to end)
+  let btc_candles = btc_candles[1000..].to_vec();
+  backtest.candles.insert(ticker.clone(), btc_candles);
+  println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
   backtest.backtest(stop_loss)?;
   if let Some(trades) = backtest.trades.get(&ticker) {
@@ -206,13 +203,6 @@ async fn btc_half_life() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-      // Plot::plot(
-      //   vec![summary.cum_quote.data().clone()],
-      //   "btc_half_life_backtest.png",
-      //   "BTCUSDT Half Life Backtest",
-      //   "$ ROI",
-      //   "Unix Millis"
-      // )?;
     }
   }
 

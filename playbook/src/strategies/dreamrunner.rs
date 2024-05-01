@@ -167,7 +167,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
   dotenv::dotenv().ok();
-  
+
   let strategy = Dreamrunner::solusdt_optimized();
   let stop_loss = 100.0;
   let capital = 1_000.0;
@@ -185,7 +185,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
-  let csv_series = backtest.csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
+  let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
   println!("==== Dreamrunner Backtest ====");
@@ -230,7 +230,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
   let out_file = "ethusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage);
-  let csv_series = backtest.csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
+  let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
   backtest.backtest(stop_loss)?;
@@ -275,7 +275,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
   let out_file = "btcusdt_30m.csv";
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage);
-  let csv_series = backtest.csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
+  let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
   backtest.backtest(stop_loss)?;
@@ -339,7 +339,7 @@ async fn optimize() -> anyhow::Result<()> {
 
   let csv = PathBuf::from(time_series);
   let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
-  let csv_series = backtest.csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
+  let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
 
   #[derive(Debug, Clone)]
   struct BacktestResult {

@@ -64,7 +64,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
   /// Expects date of candle to be in UNIX timestamp format.
   /// CSV format: date,open,high,low,close,volume
   pub fn csv_series(
-    &mut self,
     csv_path: &PathBuf,
     start_time: Option<Time>,
     end_time: Option<Time>,
@@ -350,8 +349,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
   /// If compounded, assumes trading profits are 100% reinvested.
   /// If not compounded, assumed trading with initial capital (e.g. $1000 every trade) and not reinvesting profits.
   pub fn summary(&mut self, ticker: String) -> anyhow::Result<Summary> {
-    let mut capital = self.capital * self.leverage as f64;
-    let initial_capital = capital;
+    let mut cum_capital = self.capital * self.leverage as f64;
+    let static_capital = self.capital * self.leverage as f64;
+    let initial_capital = self.capital;
 
     let mut quote = 0.0;
     let mut cum_pct = vec![];
@@ -361,16 +361,16 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     let mut updated_trades = vec![];
     let trades = self.trades.get(&ticker).ok_or(anyhow::anyhow!("No trades for ticker"))?;
     for trades in trades.windows(2) {
-      let exit = &trades[1];
       let entry = &trades[0];
+      let exit = &trades[1];
       let factor = match entry.side {
         Order::Long => 1.0,
         Order::Short => -1.0,
       };
       let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
       let position_size = match self.compound {
-        true => capital,
-        false => initial_capital
+        true => cum_capital,
+        false => static_capital
       };
       
       let quantity = position_size / entry.price;
@@ -385,30 +385,30 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
       
       // fee on trade entry capital
       let entry_fee = position_size.abs() * (self.fee / 100.0);
-      capital -= entry_fee;
+      cum_capital -= entry_fee;
       
       // fee on profit made
       let mut quote_pnl = pct_pnl / 100.0 * position_size;
       let profit_fee = quote_pnl.abs() * (self.fee / 100.0);
       quote_pnl -= profit_fee;
 
-      capital += quote_pnl;
+      cum_capital += quote_pnl;
       quote += quote_pnl;
 
       cum_quote.push(Data {
         x: entry.date.to_unix_ms(),
-        y: trunc!(quote, 4)
+        y: trunc!(quote, 2)
       });
       cum_pct.push(Data {
         x: entry.date.to_unix_ms(),
-        y: trunc!(capital / initial_capital * 100.0 - 100.0, 4)
+        y: trunc!(cum_capital / initial_capital * 100.0 - 100.0, 2)
       });
       pct_per_trade.push(Data {
         x: entry.date.to_unix_ms(),
-        y: trunc!(pct_pnl, 4)
+        y: trunc!(pct_pnl, 2)
       });
 
-      let quantity = capital / exit.price;
+      let quantity = position_size / exit.price;
       let updated_exit = Trade {
         ticker: ticker.clone(),
         date: exit.date,
