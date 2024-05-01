@@ -215,21 +215,23 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     })
   }
 
+  // todo: support shorting
+  // todo: support stop loss
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
     match signal {
-      Signal::Long(info) => {
+      Signal::EnterLong(info) => {
         let order = self.long_order(info.price, info.date)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
         Ok(())
       },
-      Signal::Short(info) => {
+      Signal::ExitLong(info) => {
         let order = self.short_order(info.price, info.date)?;
         self.active_order.add_entry(order.entry.clone());
         self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
         Ok(())
       },
-      Signal::None => Ok(())
+      _ => Ok(())
     }
   }
 

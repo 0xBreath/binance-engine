@@ -1,7 +1,7 @@
-use log::warn;
+use log::{debug, warn};
 use rayon::prelude::*;
 use crate::Strategy;
-use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time, init_logger};
+use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
 use tradestats::metrics::*;
 
 #[derive(Debug, Clone)]
@@ -60,18 +60,9 @@ impl StatArb {
 
         let x: Vec<f64> = self.x.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
         let x_0 = self.x.vec[0].clone();
-        let x_1 = self.x.vec[1].clone();
 
         let y: Vec<f64> = self.y.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
         let y_0 = self.y.vec[0].clone();
-        let y_1 = self.y.vec[1].clone();
-
-        // Force alignment on previous bars for both time series.
-        // Current bar is not required as the trade would only occur for the last time series update to arrive.
-        // if x_1.x != y_1.x {
-        //   warn!("Data cache timestamps are not aligned");
-        //   return Ok(Signal::None);
-        // }
 
         let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
           |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
@@ -88,52 +79,53 @@ impl StatArb {
           x: x_0.x,
           y: Self::zscore(&lag_spread, self.window)?
         };
-
-        // spread down means y down or x up
-        let long = z_0.y < -self.zscore_threshold;
-        // spread up means y up or x down
-        let short = z_0.y > 0.0 && z_1.y < 0.0;
-
-        match (long, short) {
-          (true, true) => {
-            Err(anyhow::anyhow!("Both long and short signals detected"))
-          },
-          (true, false) => {
-            if ticker == self.x.id {
-              Ok(Signal::Short(SignalInfo {
-                price: x_0.y,
-                date: Time::from_unix_ms(x_0.x),
-                ticker: self.x.id.clone()
-              }))
-            } else if ticker == self.y.id {
-              Ok(Signal::Long(SignalInfo {
-                price: y_0.y,
-                date: Time::from_unix_ms(y_0.x),
-                ticker: self.y.id.clone()
-              }))
-            } else {
-              Ok(Signal::None)
-            }
-          },
-          (false, true) => {
-
-            if ticker == self.x.id {
-              Ok(Signal::Long(SignalInfo {
-                price: x_0.y,
-                date: Time::from_unix_ms(x_0.x),
-                ticker: self.x.id.clone()
-              }))
-            } else if ticker == self.y.id {
-              Ok(Signal::Short(SignalInfo {
-                price: y_0.y,
-                date: Time::from_unix_ms(y_0.x),
-                ticker: self.y.id.clone()
-              }))
-            } else {
-              Ok(Signal::None)
-            }
-          },
-          (false, false) => Ok(Signal::None)
+        
+        let enter_long = z_0.y < -self.zscore_threshold;
+        let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
+        let enter_short = false;
+        let exit_short = false;
+        
+        if enter_long {
+          if ticker == self.x.id {
+            Ok(Signal::ExitLong(SignalInfo {
+              price: x_0.y,
+              date: Time::from_unix_ms(x_0.x),
+              ticker: self.x.id.clone()
+            }))
+          } else if ticker == self.y.id {
+            Ok(Signal::EnterLong(SignalInfo {
+              price: y_0.y,
+              date: Time::from_unix_ms(y_0.x),
+              ticker: self.y.id.clone()
+            }))
+          } else {
+            Ok(Signal::None)
+          }
+        } else if exit_long {
+          if ticker == self.x.id {
+            Ok(Signal::EnterLong(SignalInfo {
+              price: x_0.y,
+              date: Time::from_unix_ms(x_0.x),
+              ticker: self.x.id.clone()
+            }))
+          } else if ticker == self.y.id {
+            Ok(Signal::ExitLong(SignalInfo {
+              price: y_0.y,
+              date: Time::from_unix_ms(y_0.x),
+              ticker: self.y.id.clone()
+            }))
+          } else {
+            Ok(Signal::None)
+          }
+        } 
+        else if enter_short {
+          debug!("enter short");
+          Ok(Signal::None)
+        } else if exit_short {
+          debug!("exit short");
+          Ok(Signal::None)
+        } else {
+          Ok(Signal::None)
         }
       }
     }
@@ -206,7 +198,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone());
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.02, true, 1);
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.02, true, 1, false);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -314,7 +306,7 @@ async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone());
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1);
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1, false);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -406,7 +398,7 @@ async fn btc_eth_cointegration() -> anyhow::Result<()> {
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone());
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1);
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1, false);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");

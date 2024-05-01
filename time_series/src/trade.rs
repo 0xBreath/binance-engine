@@ -26,19 +26,27 @@ pub struct SignalInfo {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Signal {
-  Long(SignalInfo),
-  Short(SignalInfo),
+  EnterLong(SignalInfo),
+  ExitLong(SignalInfo),
+  EnterShort(SignalInfo),
+  ExitShort(SignalInfo),
   None
 }
 
 impl Signal {
   pub fn print(&self) -> String {
     match self {
-      Signal::Long(data) => {
-        format!("🟢 Long {}", data.price)
+      Signal::EnterLong(data) => {
+        format!("🟢🟢 Enter Long {}", data.price)
       },
-      Signal::Short(data) => {
-        format!("🔴️ Short {}", data.price)
+      Signal::ExitLong(data) => {
+        format!("🟢 Exit Long {}", data.price)
+      },
+      Signal::EnterShort(data) => {
+        format!("🔴️🔴️ Enter Short {}", data.price)
+      },
+      Signal::ExitShort(data) => {
+        format!("🔴️ Exit Short {}", data.price)
       },
       Signal::None => "No signal".to_string()
     }
@@ -47,8 +55,10 @@ impl Signal {
   #[allow(dead_code)]
   pub fn price(&self) -> Option<f64> {
     match self {
-      Signal::Long(info) => Some(info.price),
-      Signal::Short(info) => Some(info.price),
+      Signal::EnterLong(info) => Some(info.price),
+      Signal::ExitLong(info) => Some(info.price),
+      Signal::EnterShort(info) => Some(info.price),
+      Signal::ExitShort(info) => Some(info.price),
       Signal::None => None
     }
   }

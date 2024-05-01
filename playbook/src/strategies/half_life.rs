@@ -1,4 +1,4 @@
-use log::warn;
+use log::{debug, warn};
 use rayon::prelude::*;
 use crate::Strategy;
 use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
@@ -79,30 +79,32 @@ impl HalfLife {
         // let short = z_0.y < -self.zscore_threshold;
         // let long = z_0.y > 0.0 && z_1.y < 0.0;
     
-        let long = z_0.y < -self.zscore_threshold;
-        let short = z_0.y > 0.0 && z_1.y < 0.0;
-    
-        match (long, short) {
-          (true, true) => {
-            Err(anyhow::anyhow!("Both long and short signals detected"))
-          },
-          (true, false) => {
-            Ok(Signal::Long(SignalInfo {
-              price: y_0.y,
-              date: Time::from_unix_ms(y_0.x),
-              ticker: ticker.clone()
-            }))
-          },
-          (false, true) => {
-            Ok(Signal::Short(SignalInfo {
-              price: y_0.y,
-              date: Time::from_unix_ms(y_0.x),
-              ticker: ticker.clone()
-            }))
-          },
-          (false, false) => Ok(Signal::None)
+        let enter_long = z_0.y < -self.zscore_threshold;
+        let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
+        let enter_short = false;
+        let exit_short = false;
+
+        if enter_long {
+          Ok(Signal::EnterLong(SignalInfo {
+            price: y_0.y,
+            date: Time::from_unix_ms(y_0.x),
+            ticker: ticker.clone()
+          }))
+        } else if exit_long {
+          Ok(Signal::ExitLong(SignalInfo {
+            price: y_0.y,
+            date: Time::from_unix_ms(y_0.x),
+            ticker: ticker.clone()
+          }))
+        } else if enter_short {
+          debug!("enter short");
+          Ok(Signal::None)
+        } else if exit_short {
+          debug!("exit short");
+          Ok(Signal::None)
+        } else {
+          Ok(Signal::None)
         }
-        
       }
     }
   }
@@ -161,6 +163,10 @@ async fn btc_half_life() -> anyhow::Result<()> {
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
   let stop_loss = 0.1;
+  let fee = 0.02;
+  let compound = true;
+  let leverage = 1;
+  let short_selling = true;
   
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
@@ -183,7 +189,14 @@ async fn btc_half_life() -> anyhow::Result<()> {
   let window = 10;
   
   let strat = HalfLife::new(capacity, window, threshold, ticker.clone());
-  let mut backtest = Backtest::new(strat.clone(), 1_000.0, 0.02, true, 1);
+  let mut backtest = Backtest::new(
+    strat.clone(), 
+    1_000.0,
+    fee,
+    compound,
+    leverage,
+    short_selling
+  );
   // backtest.candles.insert(ticker.clone(), btc_candles.clone());
   // println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
   

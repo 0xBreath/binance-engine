@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::{debug, info, warn};
 use crate::{Strategy};
 use time_series::{Candle, Signal, Source, trunc, DataCache, Kagi, SignalInfo};
 
@@ -97,25 +97,32 @@ impl Dreamrunner {
     info!("kagi: {}, wma: {}", k_0.line, trunc!(wma_0, 2));
 
     // long if WMA crosses above Kagi and was below Kagi in previous candle
-    let long = wma_0 > k_0.line && wma_1 < k_1.line;
+    let enter_long = wma_0 > k_0.line && wma_1 < k_1.line;
     // short if WMA crosses below Kagi and was above Kagi in previous candle
-    let short = wma_0 < k_0.line && wma_1 > k_1.line;
-
-    match (long, short) {
-      (true, true) => {
-        Err(anyhow::anyhow!("Both long and short signals detected"))
-      },
-      (true, false) => Ok(Signal::Long(SignalInfo {
-        price: c_0.close, 
+    let exit_long = wma_0 < k_0.line && wma_1 > k_1.line;
+    let enter_short = false;
+    let exit_short = false;
+    
+    if enter_long {
+      Ok(Signal::EnterLong(SignalInfo {
+        price: c_0.close,
         date: c_0.date,
         ticker: self.ticker.clone()
-      })),
-      (false, true) => Ok(Signal::Short(SignalInfo {
-        price: c_0.close, 
+      }))
+    } else if exit_long {
+      Ok(Signal::ExitLong(SignalInfo {
+        price: c_0.close,
         date: c_0.date,
         ticker: self.ticker.clone()
-      })),
-      (false, false) => Ok(Signal::None)
+      }))
+    } else if enter_short {
+      debug!("enter short");
+      Ok(Signal::None)
+    } else if exit_short {
+      debug!("exit short");
+      Ok(Signal::None)
+    } else {
+      Ok(Signal::None)
     }
   }
 
@@ -168,11 +175,12 @@ async fn sol_backtest() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::solusdt_optimized();
-  let stop_loss = 100.0;
+  let stop_loss = 5.0;
   let capital = 1_000.0;
   let fee = 0.01;
   let compound = true;
   let leverage = 1;
+  let short_selling = false;
   let ticker = "SOLUSDT".to_string();
 
   // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(28), None, None, None);
@@ -183,7 +191,7 @@ async fn sol_backtest() -> anyhow::Result<()> {
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
@@ -221,6 +229,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
   let fee = 0.15;
   let compound = false;
   let leverage = 1;
+  let short_selling = false;
   let ticker = "ETHUSDT".to_string();
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
@@ -228,7 +237,7 @@ async fn eth_backtest() -> anyhow::Result<()> {
 
   let out_file = "ethusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage);
+  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
@@ -266,6 +275,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
   let fee = 0.15;
   let compound = false;
   let leverage = 1;
+  let short_selling = false;
   let ticker = "BTCUSDT".to_string();
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
@@ -273,7 +283,7 @@ async fn btc_backtest() -> anyhow::Result<()> {
 
   let out_file = "btcusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage);
+  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
@@ -311,6 +321,7 @@ async fn optimize() -> anyhow::Result<()> {
   let fee = 0.01;
   let compound = true;
   let leverage = 1;
+  let short_selling = false;
 
   let strategy = Dreamrunner::solusdt_optimized();
   let time_series = "solusdt_30m.csv";
@@ -337,7 +348,7 @@ async fn optimize() -> anyhow::Result<()> {
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
 
   let csv = PathBuf::from(time_series);
-  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
 
   #[derive(Debug, Clone)]
@@ -352,7 +363,7 @@ async fn optimize() -> anyhow::Result<()> {
 
     let results: Vec<BacktestResult> = (0..20).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
       let wma_period = j + 1;
-      let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage);
+      let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
       backtest.candles.insert(ticker.clone(), csv_series.candles.clone());
       backtest.backtest(stop_loss)?;
       let summary = backtest.summary(ticker.clone())?;
