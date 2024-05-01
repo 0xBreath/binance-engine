@@ -176,20 +176,20 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   use std::collections::HashSet;
   dotenv::dotenv().ok();
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
   let capacity = 100;
   let window = 10;
   let threshold = 2.0;
   let stop_loss = 0.1;
-  
+
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone());
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1);
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.02, true, 1);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -215,7 +215,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
 
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
-  
+
   backtest.backtest(stop_loss)?;
 
   let all_buy_and_hold = backtest.buy_and_hold()?;
@@ -235,6 +235,18 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
+      
+      let pcts = x_summary.pct_per_trade.data().iter().map(|d| d.y).collect::<Vec<f64>>();
+      let cum_pct_zscores = rolling_zscore(&pcts, 20).unwrap();
+      let data = cum_pct_zscores.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect();
+      Plot::plot(
+        vec![data],
+        "stat_arb_btc_zscore.png",
+        "BTCUSDT Stat Arb Z Score Profit",
+        "% ROI",
+        "Unix Millis"
+      )?;
+      
     }
   }
   if let Some(trades) = backtest.trades.get(&y_ticker) {
@@ -250,6 +262,17 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         vec![y_summary.cum_pct.data().clone(), y_bah],
         "stat_arb_eth_backtest.png",
         "ETHUSDT Stat Arb Backtest",
+        "% ROI",
+        "Unix Millis"
+      )?;
+
+      let pcts = y_summary.pct_per_trade.data().iter().map(|d| d.y).collect::<Vec<f64>>();
+      let cum_pct_zscores = rolling_zscore(&pcts, 20).unwrap();
+      let data = cum_pct_zscores.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect();
+      Plot::plot(
+        vec![data],
+        "stat_arb_eth_zscore.png",
+        "ETHUSDT Stat Arb Z Score Profit",
         "% ROI",
         "Unix Millis"
       )?;
