@@ -330,13 +330,13 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
               Signal::None => ()
             }
           }
-          iter_times.push(now.elapsed().unwrap().as_millis());
+          iter_times.push(now.elapsed().unwrap().as_micros());
         }
         index_iter_times.push(iter_times.iter().sum::<u128>() as f64 / iter_times.len() as f64);
       }
       if !index_iter_times.is_empty() {
         println!(
-          "Average index iteration time: {}ms for {} indices", 
+          "Average index iteration time: {}us for {} indices", 
           trunc!(index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64, 1),
           index_iter_times.len()
         );
