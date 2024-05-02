@@ -46,16 +46,16 @@ impl HalfLife {
     Ok(z_score)
   }
 
-  pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Signal> {
+  pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     match ticker {
-      None => Ok(Signal::None),
+      None => Ok(vec![]),
       Some(ticker) => {
         if self.cache.vec.len() < self.cache.capacity {
           warn!("Insufficient candles to generate signal");
-          return Ok(Signal::None);
+          return Ok(vec![]);
         }
         if ticker != self.cache.id {
-          return Ok(Signal::None);
+          return Ok(vec![]);
         }
 
         // most recent value is 0th index, so this is revered to get oldest to newest
@@ -78,25 +78,29 @@ impl HalfLife {
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
         
-        let enter_short = exit_long; // z_0.y > self.zscore_threshold;
-        let exit_short = enter_long; // z_0.y < 0.0 && z_1.y > 0.0;
+        let enter_short = false; // exit_long; // z_0.y > self.zscore_threshold;
+        let exit_short = false; // enter_long; // z_0.y < 0.0 && z_1.y > 0.0;
 
         let info = SignalInfo {
           price: y_0.y,
           date: Time::from_unix_ms(y_0.x),
           ticker: ticker.clone()
         };
-        if enter_long {
-          Ok(Signal::EnterLong(info))
-        } else if exit_long {
-          Ok(Signal::ExitLong(info))
-        } else if enter_short {
-          Ok(Signal::EnterShort(info))
-        } else if exit_short {
-          Ok(Signal::ExitShort(info))
-        } else {
-          Ok(Signal::None)
+        let mut signals = vec![];
+        // process exits before any new entries
+        if exit_short {
+          signals.push(Signal::ExitShort(info.clone()));
         }
+        if exit_long {
+          signals.push(Signal::ExitLong(info.clone()));
+        } 
+        if enter_short {
+          signals.push(Signal::EnterShort(info.clone()));
+        }
+        if enter_long {
+          signals.push(Signal::EnterLong(info));
+        }
+        Ok(signals)
       }
     }
   }
@@ -104,7 +108,7 @@ impl HalfLife {
 
 impl Strategy<Data<f64>> for HalfLife {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Signal> {
+  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     self.push_candle(candle, ticker.clone());
     self.signal(ticker)
   }

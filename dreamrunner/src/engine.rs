@@ -235,21 +235,45 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     }
   }
 
+  // todo: support multiple signals
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
-    let signal = self.strategy.process_candle(candle, None)?;
-    match &self.active_order.entry {
-      None => {
-        if Signal::None != signal {
-          info!("{}", signal.print());
-          if self.disable_trading {
-            info!("🟡 Trading disabled");
-          } else {
-            self.update_assets().await?;
-            self.handle_signal(signal).await?;
+    let signals = self.strategy.process_candle(candle, None)?;
+    for signal in signals {
+      match signal {
+        Signal::EnterLong(_) => {
+          match &self.active_order.entry {
+            None => {
+              if Signal::None != signal {
+                info!("{}", signal.print());
+                if self.disable_trading {
+                  info!("🟡 Trading disabled");
+                } else {
+                  self.update_assets().await?;
+                  self.handle_signal(signal).await?;
+                }
+              }
+            }
+            Some(_) => self.check_active_order().await?
           }
         }
+        Signal::ExitLong(_) => {
+          match &self.active_order.entry {
+            None => {
+              if Signal::None != signal {
+                info!("{}", signal.print());
+                if self.disable_trading {
+                  info!("🟡 Trading disabled");
+                } else {
+                  self.update_assets().await?;
+                  self.handle_signal(signal).await?;
+                }
+              }
+            }
+            Some(_) => self.check_active_order().await?
+          }
+        }
+        _ => ()
       }
-      Some(_) => self.check_active_order().await?
     }
     Ok(())
   }

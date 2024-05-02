@@ -306,79 +306,81 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
           }
 
           // place new trade if signal is present
-          let signal = self.strategy.process_candle(candle, Some(ticker.clone()))?;
-          match signal {
-            Signal::EnterLong(info) => {
-              if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-                // avoid stacking longs
-                if trade.side == Order::EnterLong {
-                  continue;
-                }
-              } else {
-                let quantity = capital / info.price;
-                let trade = Trade {
-                  ticker: info.ticker.clone(),
-                  date: info.date,
-                  side: Order::EnterLong,
-                  quantity,
-                  price: info.price,
-                };
-                active_trades.insert(info.ticker.clone(), Some(trade.clone()));
-                self.add_trade(trade, info.ticker.clone());
-              }
-            },
-            Signal::ExitLong(info) => {
-              if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-                if trade.side == Order::EnterLong {
+          let signals = self.strategy.process_candle(candle, Some(ticker.clone()))?;
+          for signal in signals {
+            match signal {
+              Signal::EnterLong(info) => {
+                if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                  // avoid stacking longs
+                  if trade.side == Order::EnterLong {
+                    continue;
+                  }
+                } else {
                   let quantity = capital / info.price;
                   let trade = Trade {
                     ticker: info.ticker.clone(),
                     date: info.date,
-                    side: Order::ExitLong,
+                    side: Order::EnterLong,
                     quantity,
                     price: info.price,
                   };
-                  active_trades.insert(info.ticker.clone(), None);
+                  active_trades.insert(info.ticker.clone(), Some(trade.clone()));
                   self.add_trade(trade, info.ticker.clone());
                 }
-              }
-            },
-            Signal::EnterShort(info) => {
-              if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-                // avoid stacking shorts
-                if trade.side == Order::EnterShort {
-                  continue;
+              },
+              Signal::ExitLong(info) => {
+                if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                  if trade.side == Order::EnterLong {
+                    let quantity = capital / info.price;
+                    let trade = Trade {
+                      ticker: info.ticker.clone(),
+                      date: info.date,
+                      side: Order::ExitLong,
+                      quantity,
+                      price: info.price,
+                    };
+                    active_trades.insert(info.ticker.clone(), None);
+                    self.add_trade(trade, info.ticker.clone());
+                  }
                 }
-              } else {
-                let quantity = capital / info.price;
-                let trade = Trade {
-                  ticker: info.ticker.clone(),
-                  date: info.date,
-                  side: Order::EnterShort,
-                  quantity,
-                  price: info.price,
-                };
-                active_trades.insert(info.ticker.clone(), Some(trade.clone()));
-                self.add_trade(trade, info.ticker.clone());
-              }
-            },
-            Signal::ExitShort(info) => {
-              if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-                if trade.side == Order::EnterShort {
+              },
+              Signal::EnterShort(info) => {
+                if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                  // avoid stacking shorts
+                  if trade.side == Order::EnterShort {
+                    continue;
+                  }
+                } else if self.short_selling {
                   let quantity = capital / info.price;
                   let trade = Trade {
                     ticker: info.ticker.clone(),
                     date: info.date,
-                    side: Order::ExitShort,
+                    side: Order::EnterShort,
                     quantity,
                     price: info.price,
                   };
-                  active_trades.insert(info.ticker.clone(), None);
+                  active_trades.insert(info.ticker.clone(), Some(trade.clone()));
                   self.add_trade(trade, info.ticker.clone());
                 }
-              }
-            },
-            _ => ()
+              },
+              Signal::ExitShort(info) => {
+                if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                  if trade.side == Order::EnterShort && self.short_selling {
+                    let quantity = capital / info.price;
+                    let trade = Trade {
+                      ticker: info.ticker.clone(),
+                      date: info.date,
+                      side: Order::ExitShort,
+                      quantity,
+                      price: info.price,
+                    };
+                    active_trades.insert(info.ticker.clone(), None);
+                    self.add_trade(trade, info.ticker.clone());
+                  }
+                }
+              },
+              _ => ()
+            }
           }
           iter_times.push(now.elapsed().unwrap().as_micros());
         }
@@ -411,9 +413,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
     let mut updated_trades = vec![];
     let trades = self.trades.get(&ticker).ok_or(anyhow::anyhow!("No trades for ticker"))?;
-    // for t in trades.iter() {
-    //   println!("{:?}", t.side);
-    // }
     
     for trades in trades.windows(2) {
       let entry = &trades[0];

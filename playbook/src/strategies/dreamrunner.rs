@@ -67,14 +67,14 @@ impl Dreamrunner {
     }
   }
 
-  pub fn signal(&mut self) -> anyhow::Result<Signal> {
+  pub fn signal(&mut self) -> anyhow::Result<Vec<Signal>> {
     if self.candles.vec.len() < 3 {
       warn!("Insufficient candles to generate kagis");
-      return Ok(Signal::None);
+      return Ok(vec![]);
     }
     if self.candles.vec.len() < self.candles.capacity {
       warn!("Insufficient candles to generate WMA");
-      return Ok(Signal::None);
+      return Ok(vec![]);
     }
 
     // prev candle
@@ -100,30 +100,31 @@ impl Dreamrunner {
     let enter_long = wma_0 > k_0.line && wma_1 < k_1.line;
     // short if WMA crosses below Kagi and was above Kagi in previous candle
     let exit_long = wma_0 < k_0.line && wma_1 > k_1.line;
-    let enter_short = false;
-    let exit_short = false;
-
-    if enter_long {
-      Ok(Signal::EnterLong(SignalInfo {
-        price: c_0.close,
-        date: c_0.date,
-        ticker: self.ticker.clone()
-      }))
-    } else if exit_long {
-      Ok(Signal::ExitLong(SignalInfo {
-        price: c_0.close,
-        date: c_0.date,
-        ticker: self.ticker.clone()
-      }))
-    } else if enter_short {
-      debug!("enter short");
-      Ok(Signal::None)
-    } else if exit_short {
-      debug!("exit short");
-      Ok(Signal::None)
-    } else {
-      Ok(Signal::None)
+    let enter_short = exit_long;
+    let exit_short = enter_long;
+    
+    let info = SignalInfo {
+      price: c_0.close,
+      date: c_0.date,
+      ticker: self.ticker.clone()
+    };
+    
+    let mut signals = vec![];
+    
+    // process exits before any new entries
+    if exit_long {
+      signals.push(Signal::ExitLong(info.clone()));
     }
+    if exit_short {
+      signals.push(Signal::ExitShort(info.clone()));
+    }
+    if enter_long {
+      signals.push(Signal::EnterLong(info.clone()));
+    }
+    if enter_short {
+      signals.push(Signal::EnterShort(info));
+    }
+    Ok(signals)
   }
 
   pub fn wma(&self, candles: &[&Candle]) -> f64 {
@@ -147,7 +148,7 @@ impl Dreamrunner {
 
 impl Strategy<Candle> for Dreamrunner {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle, _ticker: Option<String>) -> anyhow::Result<Signal> {
+  fn process_candle(&mut self, candle: Candle, _ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     self.candles.push(candle);
     self.signal()
   }

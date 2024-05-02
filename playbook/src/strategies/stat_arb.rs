@@ -49,13 +49,13 @@ impl StatArb {
     Ok(z_score)
   }
 
-  pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Signal> {
+  pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     match ticker {
-      None => Ok(Signal::None),
+      None => Ok(vec![]),
       Some(ticker) => {
         if self.x.vec.len() < self.x.capacity || self.y.vec.len() < self.y.capacity {
           warn!("Insufficient candles to generate signal");
-          return Ok(Signal::None);
+          return Ok(vec![]);
         }
 
         let x: Vec<f64> = self.x.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
@@ -82,51 +82,53 @@ impl StatArb {
         
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
-        let enter_short = false;
-        let exit_short = false;
+        let enter_short = exit_long;
+        let exit_short = enter_long;
         
+        let x_info = SignalInfo {
+          price: x_0.y,
+          date: Time::from_unix_ms(x_0.x),
+          ticker: self.x.id.clone()
+        };
+        let y_info = SignalInfo {
+          price: y_0.y,
+          date: Time::from_unix_ms(y_0.x),
+          ticker: self.y.id.clone()
+        };
+        
+        let mut signals = vec![];
+
+        // process exits before any new entries
+        if exit_long {
+          if ticker == self.x.id {
+            signals.push(Signal::EnterLong(x_info.clone()))
+          } else if ticker == self.y.id {
+            signals.push(Signal::ExitLong(y_info.clone()))
+          }
+        }
+        if exit_short {
+          if ticker == self.x.id {
+            signals.push(Signal::ExitShort(x_info.clone()))
+          } else if ticker == self.y.id {
+            signals.push(Signal::EnterShort(y_info.clone()))
+          }
+        }
+
         if enter_long {
           if ticker == self.x.id {
-            Ok(Signal::ExitLong(SignalInfo {
-              price: x_0.y,
-              date: Time::from_unix_ms(x_0.x),
-              ticker: self.x.id.clone()
-            }))
+            signals.push(Signal::ExitLong(x_info.clone()))
           } else if ticker == self.y.id {
-            Ok(Signal::EnterLong(SignalInfo {
-              price: y_0.y,
-              date: Time::from_unix_ms(y_0.x),
-              ticker: self.y.id.clone()
-            }))
-          } else {
-            Ok(Signal::None)
+            signals.push(Signal::EnterLong(y_info.clone()))
           }
-        } else if exit_long {
-          if ticker == self.x.id {
-            Ok(Signal::EnterLong(SignalInfo {
-              price: x_0.y,
-              date: Time::from_unix_ms(x_0.x),
-              ticker: self.x.id.clone()
-            }))
-          } else if ticker == self.y.id {
-            Ok(Signal::ExitLong(SignalInfo {
-              price: y_0.y,
-              date: Time::from_unix_ms(y_0.x),
-              ticker: self.y.id.clone()
-            }))
-          } else {
-            Ok(Signal::None)
-          }
-        } 
-        else if enter_short {
-          debug!("enter short");
-          Ok(Signal::None)
-        } else if exit_short {
-          debug!("exit short");
-          Ok(Signal::None)
-        } else {
-          Ok(Signal::None)
         }
+        if enter_short {
+          if ticker == self.x.id {
+            signals.push(Signal::ExitShort(x_info))
+          } else if ticker == self.y.id {
+            signals.push(Signal::EnterShort(y_info))
+          }
+        }
+        Ok(signals)
       }
     }
 
@@ -135,7 +137,7 @@ impl StatArb {
 
 impl Strategy<Data<f64>> for StatArb {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
-  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Signal> {
+  fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     self.push_candle(candle, ticker.clone());
     self.signal(ticker)
   }
