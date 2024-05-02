@@ -77,9 +77,13 @@ impl HalfLife {
         
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
+        let enter_short = exit_long;
+        let exit_short = enter_long;
         
-        let enter_short = false; // exit_long; // z_0.y > self.zscore_threshold;
-        let exit_short = false; // enter_long; // z_0.y < 0.0 && z_1.y > 0.0;
+        // let enter_short = z_0.y > self.zscore_threshold;
+        // let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
+        // let enter_long = exit_short;
+        // let exit_long = enter_short;
 
         let info = SignalInfo {
           price: y_0.y,
@@ -169,7 +173,7 @@ async fn btc_half_life() -> anyhow::Result<()> {
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
   let stop_loss = 0.1;
-  let fee = 0.02;
+  let fee = 0.0;
   let compound = true;
   let leverage = 1;
   let short_selling = true;
@@ -203,25 +207,23 @@ async fn btc_half_life() -> anyhow::Result<()> {
     leverage,
     short_selling
   );
-  // backtest.candles.insert(ticker.clone(), btc_candles.clone());
-  // println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
   // out-of-sample data (index 1000 to end)
   let btc_candles = btc_candles[1000..].to_vec();
   backtest.candles.insert(ticker.clone(), btc_candles);
   println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
-  backtest.backtest(stop_loss)?;
+  let summary = backtest.backtest(stop_loss)?;
+  summary.print(&ticker);
+  
   if let Some(trades) = backtest.trades.get(&ticker) {
     if trades.len() > 1 {
-      let summary = backtest.summary(ticker.clone())?;
-      summary.print();
       let bah = backtest.buy_and_hold()?
         .get(&ticker)
         .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
         .clone();
       Plot::plot(
-        vec![summary.cum_pct.data().clone(), bah],
+        vec![summary.cum_pct(&ticker)?.data().clone(), bah],
         "half_life_btc_backtest.png",
         "BTCUSDT Half Life Backtest",
         "% ROI",

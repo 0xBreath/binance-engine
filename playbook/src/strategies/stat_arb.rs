@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::{warn};
 use rayon::prelude::*;
 use crate::Strategy;
 use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
@@ -187,20 +187,24 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   use std::collections::HashSet;
   dotenv::dotenv().ok();
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
+  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
   let capacity = 100;
   let window = 10;
   let threshold = 2.0;
   let stop_loss = 0.1;
+  let fee = 0.02;
+  let compound = true;
+  let leverage = 1;
+  let short_selling = true;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
   let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone());
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.02, true, 1, false);
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, fee, compound, leverage, short_selling);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -227,20 +231,18 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
 
-  backtest.backtest(stop_loss)?;
-
+  let summary = backtest.backtest(stop_loss)?;
   let all_buy_and_hold = backtest.buy_and_hold()?;
+  
   if let Some(trades) = backtest.trades.get(&x_ticker) {
     if trades.len() > 1 {
-      let x_summary = backtest.summary(x_ticker.clone())?;
-      println!("===== BTCUSDT Summary =====");
-      x_summary.print();
+      summary.print(&x_ticker);
       let x_bah = all_buy_and_hold
         .get(&x_ticker)
         .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
         .clone();
       Plot::plot(
-        vec![x_summary.cum_pct.data().clone(), x_bah],
+        vec![summary.cum_pct(&x_ticker)?.data().clone(), x_bah],
         "stat_arb_btc_backtest.png",
         "BTCUSDT Stat Arb Backtest",
         "% ROI",
@@ -248,7 +250,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
       )?;
 
       Plot::plot(
-        vec![x_summary.pct_per_trade.data().clone()],
+        vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
         "stat_arb_btc_trades.png",
         "BTCUSDT Stat Arb Trades",
         "% ROI",
@@ -259,15 +261,13 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   }
   if let Some(trades) = backtest.trades.get(&y_ticker) {
     if trades.len() > 1 {
-      let y_summary = backtest.summary(y_ticker.clone())?;
-      println!("===== ETHUSDT Summary =====");
-      y_summary.print();
+      summary.print(&y_ticker);
       let y_bah = all_buy_and_hold
         .get(&y_ticker)
         .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
         .clone();
       Plot::plot(
-        vec![y_summary.cum_pct.data().clone(), y_bah],
+        vec![summary.cum_pct(&y_ticker)?.data().clone(), y_bah],
         "stat_arb_eth_backtest.png",
         "ETHUSDT Stat Arb Backtest",
         "% ROI",
@@ -275,7 +275,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
       )?;
 
       Plot::plot(
-        vec![y_summary.pct_per_trade.data().clone()],
+        vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
         "stat_arb_eth_trades.png",
         "ETHUSDT Stat Arb Trades",
         "% ROI",

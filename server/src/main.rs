@@ -132,7 +132,7 @@ async fn get_price(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpRespons
 #[get("/trades")]
 async fn trades(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
-        .trades(account.ticker.clone()).await?;
+        .trades().await?;
     Ok(HttpResponse::Ok().json(res))
 }
 
@@ -146,7 +146,7 @@ async fn orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> 
 #[get("/openOrders")]
 async fn open_orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
-        .open_orders(account.ticker.clone()).await?;
+        .open_orders().await?;
     info!("Open orders: {:?}", res);
     Ok(HttpResponse::Ok().json(res))
 }
@@ -154,23 +154,23 @@ async fn open_orders(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpRespo
 #[get("/info")]
 async fn exchange_info(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let info = account
-        .exchange_info(account.ticker.clone()).await?;
+        .exchange_info().await?;
     Ok(HttpResponse::Ok().json(info))
 }
 
 #[get("/pnl")]
 async fn pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
-      .summary(account.ticker.clone()).await?;
-    Ok(HttpResponse::Ok().json(res.summarize()))
+      .summary().await?;
+    Ok(HttpResponse::Ok().json(res.summarize(&account.ticker)?))
 }
 
 #[get("/plotPnl")]
 async fn plot_pnl(account: Data<Arc<Account>>) -> DreamrunnerResult<HttpResponse> {
     let res = account
-      .summary(account.ticker.clone()).await?;
+      .summary().await?;
     Plot::plot(
-        vec![res.cum_quote.0],
+        vec![res.cum_quote(&account.ticker)?.data().clone()],
         "dreamrunner_roi.png",
         "Quote Pnl",
         QUOTE_ASSET,

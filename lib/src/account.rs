@@ -1,10 +1,11 @@
 #![allow(clippy::unnecessary_cast)]
 
+use std::collections::HashMap;
 use crate::*;
 use log::*;
 use serde::de::DeserializeOwned;
 use std::time::SystemTime;
-use time_series::{Data, Dataset, Summary, Time, trunc};
+use time_series::{Data, Dataset, Summary, Time, Trade, trunc};
 use crate::builder::Klines;
 use crate::trade::TradeInfo;
 
@@ -39,8 +40,8 @@ impl Account {
     }
 
     #[allow(dead_code)]
-    pub async fn exchange_info(&self, symbol: String) -> DreamrunnerResult<ExchangeInformation> {
-        let req = ExchangeInfo::request(symbol);
+    pub async fn exchange_info(&self) -> DreamrunnerResult<ExchangeInformation> {
+        let req = ExchangeInfo::request(self.ticker.clone());
         self.client
             .get::<ExchangeInformation>(API::Spot(Spot::ExchangeInfo), Some(req)).await
     }
@@ -96,8 +97,8 @@ impl Account {
     }
 
     /// Get historical orders for a single symbol
-    pub async fn trades(&self, symbol: String) -> DreamrunnerResult<Vec<TradeInfo>> {
-        let req = AllOrders::request(symbol, Some(5000));
+    pub async fn trades(&self) -> DreamrunnerResult<Vec<TradeInfo>> {
+        let req = AllOrders::request(self.ticker.clone(), Some(5000));
         let orders = self
             .client
             .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
@@ -127,8 +128,8 @@ impl Account {
         Ok(orders)
     }
 
-    pub async fn summary(&self, symbol: String) -> DreamrunnerResult<Summary> {
-        let trades = self.trades(symbol).await?;
+    pub async fn summary(&self) -> DreamrunnerResult<Summary> {
+        let trades = self.trades().await?;
         let initial_capital = trades[0].price * trades[0].quantity;
         let mut capital = initial_capital;
 
@@ -164,16 +165,20 @@ impl Account {
             })
         }
         
+        let trades: HashMap<String, Vec<Trade>> = HashMap::from([(
+            self.ticker.clone(),
+            trades.clone().into_iter().flat_map(|t| t.to_trade(self.ticker.clone())).collect()
+        )]);
         Ok(Summary {
-            avg_trade_size: self.avg_quote_trade_size(self.ticker.clone()).await?,
-            cum_quote: Dataset::new(cum_quote),
-            cum_pct: Dataset::new(cum_pct),
-            pct_per_trade: Dataset::new(pct_per_trade)
+            cum_quote: HashMap::from([(self.ticker.clone(), Dataset::new(cum_quote))]),
+            cum_pct: HashMap::from([(self.ticker.clone(), Dataset::new(cum_pct))]),
+            pct_per_trade: HashMap::from([(self.ticker.clone(), Dataset::new(pct_per_trade))]),
+            trades,
         })
     }
 
-    pub async fn avg_quote_trade_size(&self, symbol: String) -> DreamrunnerResult<f64> {
-        let trades = self.trades(symbol).await?;
+    pub async fn avg_quote_trade_size(&self) -> DreamrunnerResult<f64> {
+        let trades = self.trades().await?;
         let avg = trades.iter().rev().map(|t| {
             t.price * t.quantity
         }).sum::<f64>() / trades.len() as f64;
@@ -182,8 +187,8 @@ impl Account {
 
     /// Get last open trade for a single symbol
     /// Returns Some if there is an open trade, None otherwise
-    pub async fn open_orders(&self, symbol: String) -> DreamrunnerResult<Vec<HistoricalOrder>> {
-        let req = AllOrders::request(symbol, Some(5000));
+    pub async fn open_orders(&self) -> DreamrunnerResult<Vec<HistoricalOrder>> {
+        let req = AllOrders::request(self.ticker.clone(), Some(5000));
         let orders = self
             .client
             .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;

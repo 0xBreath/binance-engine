@@ -2,6 +2,7 @@ use std::str::FromStr;
 use crate::{BinanceTrade};
 use crate::model::*;
 use serde::{Serialize, Deserialize};
+use time_series::{Time, Trade};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeInfo {
@@ -42,6 +43,20 @@ impl TradeInfo {
       quantity: order_trade_event.qty.parse::<f64>()?,
       price: order_trade_event.price.parse::<f64>()?,
       side: Side::from_str(&order_trade_event.side)?,
+    })
+  }
+  
+  pub fn to_trade(&self, ticker: String) -> anyhow::Result<Trade> {
+    Ok(Trade {
+      ticker,
+      date: Time::from_unix_ms(self.event_time),
+      // todo: handle short selling
+      side: match self.side {
+        Side::Long => time_series::Order::EnterLong,
+        Side::Short => time_series::Order::ExitLong,
+      },
+      quantity: self.quantity,
+      price: self.price
     })
   }
 }

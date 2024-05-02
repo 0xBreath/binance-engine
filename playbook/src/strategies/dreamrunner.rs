@@ -1,4 +1,4 @@
-use log::{debug, info, warn};
+use log::{info, warn};
 use crate::{Strategy};
 use time_series::{Candle, Signal, Source, trunc, DataCache, Kagi, SignalInfo};
 
@@ -198,16 +198,15 @@ async fn dreamrunner_sol() -> anyhow::Result<()> {
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
   println!("==== Dreamrunner Backtest ====");
-  backtest.backtest(stop_loss)?;
-  let summary = backtest.summary(ticker.clone())?;
+  let summary = backtest.backtest(stop_loss)?;
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
-  summary.print();
+  summary.print(&ticker);
   Plot::plot(
-    vec![summary.cum_pct.0, buy_and_hold],
+    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
     "dreamrunner_sol_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
     "% ROI",
@@ -243,18 +242,17 @@ async fn eth_backtest() -> anyhow::Result<()> {
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
-  backtest.backtest(stop_loss)?;
-  let summary = backtest.summary(ticker.clone())?;
+  let summary = backtest.backtest(stop_loss)?;
 
   println!("==== Dreamrunner Backtest ====");
-  summary.print();
+  summary.print(&ticker);
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
   Plot::plot(
-    vec![summary.cum_quote.0, buy_and_hold],
+    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
     "ethusdt_30m_backtest.png",
     "ETH/USDT Dreamrunner Backtest",
     "Equity",
@@ -289,18 +287,17 @@ async fn btc_backtest() -> anyhow::Result<()> {
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
-  backtest.backtest(stop_loss)?;
-  let summary = backtest.summary(ticker.clone())?;
+  let summary = backtest.backtest(stop_loss)?;
 
   println!("==== Dreamrunner Backtest ====");
-  summary.print();
+  summary.print(&ticker);
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
   Plot::plot(
-    vec![summary.cum_quote.0, buy_and_hold],
+    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
     "btcusdt_30m_backtest.png",
     "BTC/USDT Dreamrunner Backtest",
     "Equity",
@@ -367,8 +364,7 @@ async fn optimize() -> anyhow::Result<()> {
       let wma_period = j + 1;
       let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
       backtest.candles.insert(ticker.clone(), csv_series.candles.clone());
-      backtest.backtest(stop_loss)?;
-      let summary = backtest.summary(ticker.clone())?;
+      let summary = backtest.backtest(stop_loss)?;
       let res = BacktestResult {
         k_rev,
         wma_period,
@@ -380,14 +376,16 @@ async fn optimize() -> anyhow::Result<()> {
   }).flatten().collect();
 
   // sort for highest percent ROI first
-  results.sort_by(|a, b| b.summary.pct_roi().partial_cmp(&a.summary.pct_roi()).unwrap());
+  results.sort_by(|a, b| {
+    b.summary.pct_roi(&ticker).partial_cmp(&a.summary.pct_roi(&ticker)).unwrap()
+  });
 
   let optimized = results.first().unwrap().clone();
   println!("==== Optimized Backtest ====");
   println!("WMA Period: {}", optimized.wma_period);
   println!("Kagi Rev: {}", optimized.k_rev);
   let summary = optimized.summary;
-  summary.print();
+  summary.print(&ticker);
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
@@ -395,7 +393,7 @@ async fn optimize() -> anyhow::Result<()> {
     .clone();
   backtest.candles.insert(ticker.clone(), csv_series.candles);
   Plot::plot(
-    vec![summary.cum_pct.0, buy_and_hold],
+    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
     out_file,
     "Dreamrunner Optimal Backtest",
     "% ROI",
