@@ -78,9 +78,9 @@ impl Dreamrunner {
     }
 
     // prev candle
-    let c_1 = self.candles.vec[1].clone();
+    let c_1 = self.candles.vec[1];
     // current candle
-    let c_0 = self.candles.vec[0].clone();
+    let c_0 = self.candles.vec[0];
 
     // kagi for previous candle
     let k_1 = self.kagi;
@@ -102,7 +102,7 @@ impl Dreamrunner {
     let exit_long = wma_0 < k_0.line && wma_1 > k_1.line;
     let enter_short = false;
     let exit_short = false;
-    
+
     if enter_long {
       Ok(Signal::EnterLong(SignalInfo {
         price: c_0.close,
@@ -167,7 +167,7 @@ impl Strategy<Candle> for Dreamrunner {
 // ==========================================================================================
 
 #[tokio::test]
-async fn sol_backtest() -> anyhow::Result<()> {
+async fn dreamrunner_sol() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot};
@@ -175,9 +175,10 @@ async fn sol_backtest() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::solusdt_optimized();
-  let stop_loss = 5.0;
+  // todo: tiny stop loss makes astronomical returns, but is this realistic?
+  let stop_loss = 0.1;
   let capital = 1_000.0;
-  let fee = 0.01;
+  let fee = 0.02;
   let compound = true;
   let leverage = 1;
   let short_selling = false;

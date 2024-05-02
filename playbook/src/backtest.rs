@@ -7,7 +7,6 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::str::FromStr;
-use log::error;
 use lib::{Account};
 use crate::Strategy;
 
@@ -18,8 +17,19 @@ pub struct CsvSeries {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Order {
-  Long,
-  Short,
+  EnterLong,
+  ExitLong,
+  EnterShort,
+  ExitShort
+}
+impl Order {
+  pub fn is_entry(&self) -> bool {
+    matches!(self, Order::EnterLong | Order::EnterShort)
+  }
+  
+  pub fn is_exit(&self) -> bool {
+    matches!(self, Order::ExitLong | Order::ExitShort)
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -38,8 +48,11 @@ pub struct Backtest<T, S: Strategy<T>> {
   pub capital: f64,
   /// Fee in percentage
   pub fee: f64,
+  /// If compounded, assumes trading profits are 100% reinvested.
+  /// If not compounded, assumed trading with initial capital (e.g. $1000 every trade) and not reinvesting profits.
   pub compound: bool,
   pub leverage: u8,
+  /// False if spot trading, true if margin trading which allows short selling
   pub short_selling: bool,
   pub candles: HashMap<String, Vec<Candle>>,
   pub trades: HashMap<String, Vec<Trade>>,
@@ -219,220 +232,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     Ok(all_data)
   }
 
-  // // todo: spot trading doesn't treat the period between exited longs and entered shorts as trade, just an opportunity cost
-  // // todo: spot trading can't short
-  // pub fn backtest(
-  //   &mut self,
-  //   stop_loss: f64,
-  // ) -> anyhow::Result<()> {
-  //   let capital = self.capital;
-  //   let candles = self.candles.clone();
-  // 
-  //   let pre_backtest = std::time::SystemTime::now();
-  //   if let Some((_, first_series)) = candles.iter().next() {
-  //     let length = first_series.len();
-  // 
-  //     let mut active_trades: HashMap<String, Option<Trade>> = HashMap::new();
-  //     for (ticker, _) in candles.iter() {
-  //       // populate active trades with None values for each ticker so getter doesn't panic
-  //       active_trades.insert(ticker.clone(), None);
-  //       // populate trades with empty vec for each ticker so getter doesn't panic
-  //       self.trades.insert(ticker.clone(), vec![]);
-  //     }
-  // 
-  //     // Iterate over the index of each series
-  //     let mut index_iter_times = vec![];
-  //     for i in 0..length {
-  //       // Access the i-th element of each vector to simulate getting price update
-  //       // for every ticker at roughly the same time
-  //       let mut iter_times: Vec<u128> = vec![];
-  //       for (ticker, candles) in candles.iter() {
-  //         if i == 0 {
-  //           println!("{}", ticker);
-  //         }
-  //         let now = std::time::SystemTime::now();
-  //         let candle = candles[i];
-  // 
-  //         // check if stop loss is hit
-  //         if let Some(trade) = active_trades.get(ticker).unwrap() {
-  //           let time = candle.date;
-  //           match trade.side {
-  //             Order::Long => {
-  //               let price = candle.low;
-  //               let pct_diff = (price - trade.price) / trade.price * 100.0;
-  //               if pct_diff < stop_loss * -1.0 {
-  //                 let price_at_stop_loss = trade.price * (1.0 - stop_loss / 100.0);
-  //                 let trade = Trade {
-  //                   ticker: ticker.clone(),
-  //                   date: time,
-  //                   side: Order::Short,
-  //                   quantity: trade.quantity,
-  //                   price: price_at_stop_loss,
-  //                 };
-  //                 active_trades.insert(ticker.clone(), None);
-  //                 self.add_trade(trade, ticker.clone());
-  //               }
-  //             }
-  //             Order::Short => {
-  //               let price = candle.high;
-  //               let pct_diff = (price - trade.price) / trade.price * 100.0;
-  //               if pct_diff > stop_loss {
-  //                 let price_at_stop_loss = trade.price * (1.0 + stop_loss / 100.0);
-  //                 let trade = Trade {
-  //                   ticker: ticker.clone(),
-  //                   date: time,
-  //                   side: Order::Long,
-  //                   quantity: trade.quantity,
-  //                   price: price_at_stop_loss,
-  //                 };
-  //                 active_trades.insert(ticker.clone(), None);
-  //                 self.add_trade(trade, ticker.clone());
-  //               }
-  //             }
-  //           }
-  //         }
-  // 
-  //         // place new trade if signal is present
-  //         let signal = self.strategy.process_candle(candle, Some(ticker.clone()))?;
-  //         match signal {
-  //           Signal::EnterLong(info) => {
-  //             if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-  //               if trade.side == Order::Long {
-  //                 continue;
-  //               }
-  //             }
-  //             let quantity = capital / info.price;
-  //             let trade = Trade {
-  //               ticker: info.ticker.clone(),
-  //               date: info.date,
-  //               side: Order::Long,
-  //               quantity,
-  //               price: info.price,
-  //             };
-  //             active_trades.insert(info.ticker.clone(), Some(trade.clone()));
-  //             self.add_trade(trade, info.ticker.clone());
-  //           },
-  //           Signal::ExitLong(info) => {
-  //             if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-  //               if trade.side == Order::Short {
-  //                 continue;
-  //               }
-  //             }
-  //             let quantity = capital / info.price;
-  //             let trade = Trade {
-  //               ticker: info.ticker.clone(),
-  //               date: info.date,
-  //               side: Order::Short,
-  //               quantity,
-  //               price: info.price,
-  //             };
-  //             active_trades.insert(info.ticker.clone(), Some(trade.clone()));
-  //             self.add_trade(trade, info.ticker.clone());
-  //           },
-  //           // todo: support shorting
-  //           _ => ()
-  //         }
-  //         iter_times.push(now.elapsed().unwrap().as_micros());
-  //       }
-  //       let avg = iter_times.iter().sum::<u128>() as f64 / iter_times.len() as f64;
-  //       index_iter_times.push(avg);
-  //     }
-  //     if !index_iter_times.is_empty() {
-  //       println!(
-  //         "Average index iteration time: {}us for {} indices",
-  //         trunc!(index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64, 1),
-  //         index_iter_times.len()
-  //       );
-  //     }
-  //   }
-  //   println!("Backtest lasted: {:?}s", pre_backtest.elapsed().unwrap().as_secs_f64());
-  // 
-  //   Ok(())
-  // }
-  // 
-  // /// If compounded, assumes trading profits are 100% reinvested.
-  // /// If not compounded, assumed trading with initial capital (e.g. $1000 every trade) and not reinvesting profits.
-  // pub fn summary(&mut self, ticker: String) -> anyhow::Result<Summary> {
-  //   let mut cum_capital = self.capital * self.leverage as f64;
-  //   let static_capital = self.capital * self.leverage as f64;
-  //   let initial_capital = self.capital;
-  // 
-  //   let mut quote = 0.0;
-  //   let mut cum_pct = vec![];
-  //   let mut cum_quote = vec![];
-  //   let mut pct_per_trade = vec![];
-  // 
-  //   let mut updated_trades = vec![];
-  //   let trades = self.trades.get(&ticker).ok_or(anyhow::anyhow!("No trades for ticker"))?;
-  //   for trades in trades.windows(2) {
-  //     let entry = &trades[0];
-  //     let exit = &trades[1];
-  //     let factor = match entry.side {
-  //       Order::Long => 1.0,
-  //       Order::Short => -1.0,
-  //     };
-  //     let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
-  //     let position_size = match self.compound {
-  //       true => cum_capital,
-  //       false => static_capital
-  //     };
-  //     
-  //     let quantity = position_size / entry.price;
-  //     let updated_entry = Trade {
-  //       ticker: ticker.clone(),
-  //       date: entry.date,
-  //       side: entry.side,
-  //       quantity,
-  //       price: entry.price
-  //     };
-  //     updated_trades.push(updated_entry);
-  //     
-  //     // fee on trade entry capital
-  //     let entry_fee = position_size.abs() * (self.fee / 100.0);
-  //     cum_capital -= entry_fee;
-  //     
-  //     // fee on profit made
-  //     let mut quote_pnl = pct_pnl / 100.0 * position_size;
-  //     let profit_fee = quote_pnl.abs() * (self.fee / 100.0);
-  //     quote_pnl -= profit_fee;
-  // 
-  //     cum_capital += quote_pnl;
-  //     quote += quote_pnl;
-  // 
-  //     cum_quote.push(Data {
-  //       x: entry.date.to_unix_ms(),
-  //       y: trunc!(quote, 2)
-  //     });
-  //     cum_pct.push(Data {
-  //       x: entry.date.to_unix_ms(),
-  //       y: trunc!(cum_capital / initial_capital * 100.0 - 100.0, 2)
-  //     });
-  //     pct_per_trade.push(Data {
-  //       x: entry.date.to_unix_ms(),
-  //       y: trunc!(pct_pnl, 2)
-  //     });
-  // 
-  //     let quantity = position_size / exit.price;
-  //     let updated_exit = Trade {
-  //       ticker: ticker.clone(),
-  //       date: exit.date,
-  //       side: exit.side,
-  //       quantity,
-  //       price: exit.price
-  //     };
-  //     updated_trades.push(updated_exit);
-  //   }
-  // 
-  //   self.trades.insert(ticker.clone(), updated_trades);
-  // 
-  //   Ok(Summary {
-  //     avg_trade_size: self.avg_quote_trade_size(ticker.clone())?,
-  //     cum_quote: Dataset::new(cum_quote),
-  //     cum_pct: Dataset::new(cum_pct),
-  //     pct_per_trade: Dataset::new(pct_per_trade)
-  //   })
-  // }
-  
   pub fn backtest(
     &mut self,
     stop_loss: f64,
@@ -466,7 +265,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
           if let Some(trade) = active_trades.get(ticker).unwrap() {
             let time = candle.date;
             match trade.side {
-              Order::Long => {
+              Order::EnterLong => {
                 let price = candle.low;
                 let pct_diff = (price - trade.price) / trade.price * 100.0;
                 if pct_diff < stop_loss * -1.0 {
@@ -474,7 +273,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                   let trade = Trade {
                     ticker: ticker.clone(),
                     date: time,
-                    side: Order::Short,
+                    side: Order::ExitLong,
                     quantity: trade.quantity,
                     price: price_at_stop_loss,
                   };
@@ -482,9 +281,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                   self.add_trade(trade, ticker.clone());
                 }
               }
-              Order::Short => {
+              Order::EnterShort => {
                 // can only be stopped out if entering a short is allowed,
-                // spot markets do not allow shorting
+                // spot markets do not allow short selling
                 if self.short_selling {
                   let price = candle.high;
                   let pct_diff = (price - trade.price) / trade.price * 100.0;
@@ -493,7 +292,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                     let trade = Trade {
                       ticker: ticker.clone(),
                       date: time,
-                      side: Order::Long,
+                      side: Order::ExitShort,
                       quantity: trade.quantity,
                       price: price_at_stop_loss,
                     };
@@ -502,6 +301,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                   }
                 }
               }
+              _ => ()
             }
           }
 
@@ -510,39 +310,74 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
           match signal {
             Signal::EnterLong(info) => {
               if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-                if trade.side == Order::Long {
+                // avoid stacking longs
+                if trade.side == Order::EnterLong {
                   continue;
                 }
+              } else {
+                let quantity = capital / info.price;
+                let trade = Trade {
+                  ticker: info.ticker.clone(),
+                  date: info.date,
+                  side: Order::EnterLong,
+                  quantity,
+                  price: info.price,
+                };
+                active_trades.insert(info.ticker.clone(), Some(trade.clone()));
+                self.add_trade(trade, info.ticker.clone());
               }
-              let quantity = capital / info.price;
-              let trade = Trade {
-                ticker: info.ticker.clone(),
-                date: info.date,
-                side: Order::Long,
-                quantity,
-                price: info.price,
-              };
-              active_trades.insert(info.ticker.clone(), Some(trade.clone()));
-              self.add_trade(trade, info.ticker.clone());
             },
             Signal::ExitLong(info) => {
               if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
-                if trade.side == Order::Short {
-                  continue;
+                if trade.side == Order::EnterLong {
+                  let quantity = capital / info.price;
+                  let trade = Trade {
+                    ticker: info.ticker.clone(),
+                    date: info.date,
+                    side: Order::ExitLong,
+                    quantity,
+                    price: info.price,
+                  };
+                  active_trades.insert(info.ticker.clone(), None);
+                  self.add_trade(trade, info.ticker.clone());
                 }
               }
-              let quantity = capital / info.price;
-              let trade = Trade {
-                ticker: info.ticker.clone(),
-                date: info.date,
-                side: Order::Short,
-                quantity,
-                price: info.price,
-              };
-              active_trades.insert(info.ticker.clone(), Some(trade.clone()));
-              self.add_trade(trade, info.ticker.clone());
             },
-            // todo: support shorting
+            Signal::EnterShort(info) => {
+              if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                // avoid stacking shorts
+                if trade.side == Order::EnterShort {
+                  continue;
+                }
+              } else {
+                let quantity = capital / info.price;
+                let trade = Trade {
+                  ticker: info.ticker.clone(),
+                  date: info.date,
+                  side: Order::EnterShort,
+                  quantity,
+                  price: info.price,
+                };
+                active_trades.insert(info.ticker.clone(), Some(trade.clone()));
+                self.add_trade(trade, info.ticker.clone());
+              }
+            },
+            Signal::ExitShort(info) => {
+              if let Some(trade) = active_trades.get(&info.ticker).unwrap() {
+                if trade.side == Order::EnterShort {
+                  let quantity = capital / info.price;
+                  let trade = Trade {
+                    ticker: info.ticker.clone(),
+                    date: info.date,
+                    side: Order::ExitShort,
+                    quantity,
+                    price: info.price,
+                  };
+                  active_trades.insert(info.ticker.clone(), None);
+                  self.add_trade(trade, info.ticker.clone());
+                }
+              }
+            },
             _ => ()
           }
           iter_times.push(now.elapsed().unwrap().as_micros());
@@ -558,13 +393,12 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
         );
       }
     }
-    println!("Backtest lasted: {:?}s", pre_backtest.elapsed().unwrap().as_secs_f64());
+    println!("Backtest lasted: {:?}s", trunc!(pre_backtest.elapsed().unwrap().as_secs_f64(), 1));
 
     Ok(())
   }
 
-  /// If compounded, assumes trading profits are 100% reinvested.
-  /// If not compounded, assumed trading with initial capital (e.g. $1000 every trade) and not reinvesting profits.
+
   pub fn summary(&mut self, ticker: String) -> anyhow::Result<Summary> {
     let mut cum_capital = self.capital * self.leverage as f64;
     let static_capital = self.capital * self.leverage as f64;
@@ -577,72 +411,75 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
     let mut updated_trades = vec![];
     let trades = self.trades.get(&ticker).ok_or(anyhow::anyhow!("No trades for ticker"))?;
+    // for t in trades.iter() {
+    //   println!("{:?}", t.side);
+    // }
+    
     for trades in trades.windows(2) {
       let entry = &trades[0];
       let exit = &trades[1];
+      
       // no short selling means spot market where short entries aren't possible
-      if entry.side == Order::Short && !self.short_selling {
+      if entry.side == Order::EnterShort && !self.short_selling {
         continue;
+      } else if entry.side.is_entry() && exit.side.is_exit() {
+        let factor = match entry.side {
+          Order::EnterLong => 1.0,
+          Order::EnterShort => -1.0,
+          _ => return Err(anyhow::anyhow!("Invalid entry order {:?}", entry.side))
+        };
+        let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
+        let position_size = match self.compound {
+          true => cum_capital,
+          false => static_capital
+        };
+  
+        let quantity = position_size / entry.price;
+        let updated_entry = Trade {
+          ticker: ticker.clone(),
+          date: entry.date,
+          side: entry.side,
+          quantity,
+          price: entry.price
+        };
+        updated_trades.push(updated_entry);
+  
+        // fee on trade entry capital
+        let entry_fee = position_size.abs() * (self.fee / 100.0);
+        cum_capital -= entry_fee;
+  
+        // fee on profit made
+        let mut quote_pnl = pct_pnl / 100.0 * position_size;
+        let profit_fee = quote_pnl.abs() * (self.fee / 100.0);
+        quote_pnl -= profit_fee;
+  
+        cum_capital += quote_pnl;
+        quote += quote_pnl;
+  
+        cum_quote.push(Data {
+          x: entry.date.to_unix_ms(),
+          y: trunc!(quote, 2)
+        });
+        cum_pct.push(Data {
+          x: entry.date.to_unix_ms(),
+          y: trunc!(cum_capital / initial_capital * 100.0 - 100.0, 2)
+        });
+        pct_per_trade.push(Data {
+          x: entry.date.to_unix_ms(),
+          y: trunc!(pct_pnl, 2)
+        });
+  
+        let quantity = position_size / exit.price;
+        let updated_exit = Trade {
+          ticker: ticker.clone(),
+          date: exit.date,
+          side: exit.side,
+          quantity,
+          price: exit.price
+        };
+        updated_trades.push(updated_exit);
+        
       }
-      let factor = match entry.side {
-        Order::Long => 1.0,
-        Order::Short => -1.0,
-      };
-      if factor == -1.0 && !self.short_selling {
-        error!("Short selling not enabled but short entry found");
-        eprintln!("Short selling not enabled but short entry found");
-        continue;
-      }
-      let pct_pnl = ((exit.price - entry.price) / entry.price * factor) * 100.0;
-      let position_size = match self.compound {
-        true => cum_capital,
-        false => static_capital
-      };
-
-      let quantity = position_size / entry.price;
-      let updated_entry = Trade {
-        ticker: ticker.clone(),
-        date: entry.date,
-        side: entry.side,
-        quantity,
-        price: entry.price
-      };
-      updated_trades.push(updated_entry);
-
-      // fee on trade entry capital
-      let entry_fee = position_size.abs() * (self.fee / 100.0);
-      cum_capital -= entry_fee;
-
-      // fee on profit made
-      let mut quote_pnl = pct_pnl / 100.0 * position_size;
-      let profit_fee = quote_pnl.abs() * (self.fee / 100.0);
-      quote_pnl -= profit_fee;
-
-      cum_capital += quote_pnl;
-      quote += quote_pnl;
-
-      cum_quote.push(Data {
-        x: entry.date.to_unix_ms(),
-        y: trunc!(quote, 2)
-      });
-      cum_pct.push(Data {
-        x: entry.date.to_unix_ms(),
-        y: trunc!(cum_capital / initial_capital * 100.0 - 100.0, 2)
-      });
-      pct_per_trade.push(Data {
-        x: entry.date.to_unix_ms(),
-        y: trunc!(pct_pnl, 2)
-      });
-
-      let quantity = position_size / exit.price;
-      let updated_exit = Trade {
-        ticker: ticker.clone(),
-        date: exit.date,
-        side: exit.side,
-        quantity,
-        price: exit.price
-      };
-      updated_trades.push(updated_exit);
     }
 
     self.trades.insert(ticker.clone(), updated_trades);

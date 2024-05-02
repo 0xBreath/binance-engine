@@ -138,12 +138,12 @@ impl Summary {
 
   pub fn quote_roi(&self) -> f64 {
     let ending_quote_roi = self.cum_quote.data().last().unwrap().y;
-    trunc!(ending_quote_roi, 2)
+    trunc!(ending_quote_roi, 3)
   }
 
   pub fn pct_roi(&self) -> f64 {
     let ending_pct_roi = self.cum_pct.data().last().unwrap().y;
-    trunc!(ending_pct_roi, 2)
+    trunc!(ending_pct_roi, 3)
   }
 
   pub fn max_drawdown(&self) -> f64 {
@@ -161,36 +161,36 @@ impl Summary {
         }
       }
     }
-    trunc!(max_dd, 2)
+    trunc!(max_dd, 3)
   }
 
   pub fn avg_trade(&self) -> f64 {
     let avg_trade = self.pct_per_trade.data().iter().map(|d| d.y).sum::<f64>() / self.pct_per_trade.data().len() as f64;
-    trunc!(avg_trade, 2)
+    trunc!(avg_trade, 3)
   }
 
   pub fn avg_winning_trade(&self) -> f64 {
     let avg_winning_trade = self.pct_per_trade.data().iter().filter(|d| d.y > 0.0).map(|d| d.y).sum::<f64>() / self.pct_per_trade.data().iter().filter(|d| d.y > 0.0).count() as f64;
-    trunc!(avg_winning_trade, 2)
+    trunc!(avg_winning_trade, 3)
   }
 
   pub fn avg_losing_trade(&self) -> f64 {
     let avg_losing_trade = self.pct_per_trade.data().iter().filter(|d| d.y < 0.0).map(|d| d.y).sum::<f64>() / self.pct_per_trade.data().iter().filter(|d| d.y < 0.0).count() as f64;
-    trunc!(avg_losing_trade, 2)
+    trunc!(avg_losing_trade, 3)
   }
 
   pub fn best_trade(&self) -> f64 {
     let best_trade = self.pct_per_trade.data().iter().map(|d| d.y).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-    trunc!(best_trade, 2)
+    trunc!(best_trade, 3)
   }
 
   pub fn worst_trade(&self) -> f64 {
     let worst_trade = self.pct_per_trade.data().iter().map(|d| d.y).min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-    trunc!(worst_trade, 2)
+    trunc!(worst_trade, 3)
   }
 
   pub fn win_rate(&self) -> f64 {
     let win_rate = self.pct_per_trade.data().iter().filter(|d| d.y > 0.0).count() as f64 / self.pct_per_trade.data().len() as f64 * 100.0;
-    trunc!(win_rate, 2)
+    trunc!(win_rate, 3)
   }
 }

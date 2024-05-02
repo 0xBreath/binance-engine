@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::warn;
 use rayon::prelude::*;
 use crate::Strategy;
 use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
@@ -57,15 +57,15 @@ impl HalfLife {
         if ticker != self.cache.id {
           return Ok(Signal::None);
         }
-    
+
         // most recent value is 0th index, so this is revered to get oldest to newest
         let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
         let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
         let lag_spread = spread[..spread.len()-1].to_vec();
-        
+
         let y_0 = self.cache.vec[0].clone();
         let y_1 = self.cache.vec[1].clone();
-    
+
         let z_0 = Data {
           x: y_0.x,
           y: Self::zscore(&spread, self.window)?
@@ -74,34 +74,26 @@ impl HalfLife {
           x: y_1.x,
           y: Self::zscore(&lag_spread, self.window)?
         };
-    
-        // inverted but somehow works
-        // let short = z_0.y < -self.zscore_threshold;
-        // let long = z_0.y > 0.0 && z_1.y < 0.0;
-    
+        
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
-        let enter_short = false;
-        let exit_short = false;
+        
+        let enter_short = exit_long; // z_0.y > self.zscore_threshold;
+        let exit_short = enter_long; // z_0.y < 0.0 && z_1.y > 0.0;
 
+        let info = SignalInfo {
+          price: y_0.y,
+          date: Time::from_unix_ms(y_0.x),
+          ticker: ticker.clone()
+        };
         if enter_long {
-          Ok(Signal::EnterLong(SignalInfo {
-            price: y_0.y,
-            date: Time::from_unix_ms(y_0.x),
-            ticker: ticker.clone()
-          }))
+          Ok(Signal::EnterLong(info))
         } else if exit_long {
-          Ok(Signal::ExitLong(SignalInfo {
-            price: y_0.y,
-            date: Time::from_unix_ms(y_0.x),
-            ticker: ticker.clone()
-          }))
+          Ok(Signal::ExitLong(info))
         } else if enter_short {
-          debug!("enter short");
-          Ok(Signal::None)
+          Ok(Signal::EnterShort(info))
         } else if exit_short {
-          debug!("exit short");
-          Ok(Signal::None)
+          Ok(Signal::ExitShort(info))
         } else {
           Ok(Signal::None)
         }
@@ -159,6 +151,16 @@ async fn btc_half_life() -> anyhow::Result<()> {
   // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
+  // BTCUSDT optimized
+  // let capacity = 1_000;
+  // let threshold = 2.0;
+  // let ticker = "BTCUSDT".to_string();
+  // let stop_loss = 0.1;
+  // let fee = 0.02;
+  // let compound = true;
+  // let leverage = 1;
+  // let short_selling = true;
+
   let capacity = 1_000;
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
@@ -170,9 +172,9 @@ async fn btc_half_life() -> anyhow::Result<()> {
   
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
-    &btc_csv, 
-    Some(start_time), 
-    Some(end_time), 
+    &btc_csv,
+    Some(start_time),
+    Some(end_time),
     ticker.clone()
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
@@ -187,10 +189,10 @@ async fn btc_half_life() -> anyhow::Result<()> {
   // use this half-life as the strategy window
   // let window = half_life.abs().round() as usize;
   let window = 10;
-  
+
   let strat = HalfLife::new(capacity, window, threshold, ticker.clone());
   let mut backtest = Backtest::new(
-    strat.clone(), 
+    strat.clone(),
     1_000.0,
     fee,
     compound,
@@ -199,7 +201,7 @@ async fn btc_half_life() -> anyhow::Result<()> {
   );
   // backtest.candles.insert(ticker.clone(), btc_candles.clone());
   // println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
-  
+
   // out-of-sample data (index 1000 to end)
   let btc_candles = btc_candles[1000..].to_vec();
   backtest.candles.insert(ticker.clone(), btc_candles);
