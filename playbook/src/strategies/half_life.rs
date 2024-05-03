@@ -1,7 +1,7 @@
 use log::warn;
 use rayon::prelude::*;
 use crate::Strategy;
-use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time, trunc};
+use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time, trunc, hurst};
 
 #[derive(Debug, Clone)]
 pub struct HalfLife {
@@ -234,6 +234,49 @@ async fn btc_half_life() -> anyhow::Result<()> {
       )?;
     }
   }
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_hurst() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, trunc};
+  use crate::Backtest;
+  use tradestats::metrics::*;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
+  
+  let ticker = "BTCUSDT".to_string();
+
+  let btc_csv = PathBuf::from("btcusdt_30m.csv");
+  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+    &btc_csv,
+    Some(start_time),
+    Some(end_time),
+    ticker.clone()
+  )?.candles;
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+
+  // convert to natural log to linearize time series
+  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
+  
+  let max_lags = 10;
+  let hurst = hurst(&series, max_lags)?;
+  println!("{} hurst: {}", ticker);
+
+
+  // Plot::plot(
+  //   vec![summary.cum_pct(&ticker)?.data().clone(), bah],
+  //   "half_life_btc_backtest.png",
+  //   "BTCUSDT Half Life Backtest",
+  //   "% ROI",
+  //   "Unix Millis"
+  // )?;
 
   Ok(())
 }

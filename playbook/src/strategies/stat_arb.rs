@@ -99,6 +99,9 @@ impl StatArb {
         };
 
         let mut signals = vec![];
+        
+        // y increases, spread increases, short y
+        // y decreases, spread decreases, long y
 
         // process exits before any new entries
         if exit_long {
@@ -110,9 +113,9 @@ impl StatArb {
         }
         if exit_short {
           if ticker == self.x.id {
-            signals.push(Signal::ExitShort(x_info.clone()))
+            signals.push(Signal::EnterShort(x_info.clone()))
           } else if ticker == self.y.id {
-            signals.push(Signal::EnterShort(y_info.clone()))
+            signals.push(Signal::ExitShort(y_info.clone()))
           }
         }
 
