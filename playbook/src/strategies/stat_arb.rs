@@ -106,14 +106,16 @@ impl StatArb {
         // process exits before any new entries
         if exit_long {
           if ticker == self.x.id {
-            signals.push(Signal::EnterLong(x_info.clone()))
+            // signals.push(Signal::EnterLong(x_info.clone()))
+            signals.push(Signal::ExitLong(x_info.clone()))
           } else if ticker == self.y.id {
             signals.push(Signal::ExitLong(y_info.clone()))
           }
         }
         if exit_short {
           if ticker == self.x.id {
-            signals.push(Signal::EnterShort(x_info.clone()))
+            // signals.push(Signal::EnterShort(x_info.clone()))
+            signals.push(Signal::ExitShort(x_info.clone()))
           } else if ticker == self.y.id {
             signals.push(Signal::ExitShort(y_info.clone()))
           }
@@ -121,14 +123,16 @@ impl StatArb {
 
         if enter_long {
           if ticker == self.x.id {
-            signals.push(Signal::ExitLong(x_info.clone()))
+            // signals.push(Signal::ExitLong(x_info.clone()))
+            signals.push(Signal::EnterLong(x_info.clone()))
           } else if ticker == self.y.id {
             signals.push(Signal::EnterLong(y_info.clone()))
           }
         }
         if enter_short {
           if ticker == self.x.id {
-            signals.push(Signal::ExitShort(x_info))
+            // signals.push(Signal::ExitShort(x_info))
+            signals.push(Signal::EnterShort(x_info))
           } else if ticker == self.y.id {
             signals.push(Signal::EnterShort(y_info))
           }
@@ -187,7 +191,7 @@ impl Strategy<Data<f64>> for StatArb {
 async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot};
+  use time_series::{Time, Day, Month, Plot, hurst, trunc};
   use crate::Backtest;
   use std::collections::HashSet;
   dotenv::dotenv().ok();
@@ -230,8 +234,15 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
   eth_candles.sort_by_key(|c| c.date.to_unix_ms());
   // Append to backtest data
-  backtest.candles.insert(x_ticker.clone(), btc_candles);
-  backtest.candles.insert(y_ticker.clone(), eth_candles);
+  backtest.candles.insert(x_ticker.clone(), btc_candles.clone());
+  backtest.candles.insert(y_ticker.clone(), eth_candles.clone());
+
+  let x: Vec<f64> = btc_candles.clone().into_par_iter().map(|d| d.close).collect();
+  let y: Vec<f64> = eth_candles.clone().into_par_iter().map(|d| d.close).collect();
+  let spread: Vec<f64> = spread_standard(&x, &y).map_err(
+    |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+  )?;
+  println!("Spread Hurst Exponent: {}", trunc!(hurst(spread), 2));
 
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
