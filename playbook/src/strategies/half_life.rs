@@ -1,7 +1,7 @@
 use log::warn;
 use rayon::prelude::*;
 use crate::Strategy;
-use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
+use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time, trunc};
 
 #[derive(Debug, Clone)]
 pub struct HalfLife {
@@ -58,10 +58,11 @@ impl HalfLife {
           return Ok(vec![]);
         }
 
-        // most recent value is 0th index, so this is revered to get oldest to newest
+        // most recent value is 0th index, so this is reversed to get oldest to newest
         let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
         let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
         let lag_spread = spread[..spread.len()-1].to_vec();
+        // println!("s: {}, ls: {}", trunc!(spread[spread.len()-1],2), trunc!(lag_spread[lag_spread.len()-1],2));
 
         let y_0 = self.cache.vec[0].clone();
         let y_1 = self.cache.vec[1].clone();
@@ -77,8 +78,10 @@ impl HalfLife {
         
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
-        let enter_short = exit_long;
-        let exit_short = enter_long;
+        // let enter_short = exit_long;
+        // let exit_short = enter_long;
+        let enter_short = false;
+        let exit_short = false;
         
         // let enter_short = z_0.y > self.zscore_threshold;
         // let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
@@ -173,10 +176,10 @@ async fn btc_half_life() -> anyhow::Result<()> {
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
   let stop_loss = 0.1;
-  let fee = 0.0;
+  let fee = 0.02;
   let compound = true;
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
   
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(

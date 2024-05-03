@@ -79,12 +79,14 @@ impl StatArb {
           x: x_0.x,
           y: Self::zscore(&lag_spread, self.window)?
         };
-        
+
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
-        let enter_short = exit_long;
-        let exit_short = enter_long;
-        
+        let enter_short = z_0.y > self.zscore_threshold;
+        let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
+        // let enter_short = exit_long;
+        // let exit_short = enter_long;
+
         let x_info = SignalInfo {
           price: x_0.y,
           date: Time::from_unix_ms(x_0.x),
@@ -95,7 +97,7 @@ impl StatArb {
           date: Time::from_unix_ms(y_0.x),
           ticker: self.y.id.clone()
         };
-        
+
         let mut signals = vec![];
 
         // process exits before any new entries
@@ -187,18 +189,18 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   use std::collections::HashSet;
   dotenv::dotenv().ok();
 
-  // let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(10), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
   let capacity = 100;
   let window = 10;
   let threshold = 2.0;
-  let stop_loss = 0.1;
+  let stop_loss = 100.0;
   let fee = 0.02;
   let compound = true;
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
@@ -233,7 +235,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
 
   let summary = backtest.backtest(stop_loss)?;
   let all_buy_and_hold = backtest.buy_and_hold()?;
-  
+
   if let Some(trades) = backtest.trades.get(&x_ticker) {
     if trades.len() > 1 {
       summary.print(&x_ticker);
