@@ -40,7 +40,7 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, "SOLUSDT".to_string()),
       kagi: Kagi::default(),
-      stop_loss_pct: None
+      stop_loss_pct: Some(1.0)
     }
   }
 
