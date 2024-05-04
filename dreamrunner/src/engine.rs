@@ -114,7 +114,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
             event.order_status,
           );
           // update state
-          self.update_active_order(TradeInfo::from_order_trade_event(&event)?)?;
+          self.update_active_order(TradeInfo::try_from(&event)?)?;
           // cancel active order if not filled within 10 minutes
           self.check_active_order().await?;
         }
@@ -175,43 +175,44 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     })
   }
 
-  fn long_order(&mut self, price: f64, time: Time) -> DreamrunnerResult<OrderBuilder> {
-    let long_qty = self.trade_qty(Side::Long, price)?;
+  fn build_order(&mut self, price: f64, time: Time, side: Side) -> DreamrunnerResult<OrderBuilder> {
+    let qty = self.trade_qty(side, price)?;
     let limit = trunc!(price, 2);
+    let timestamp = time.to_unix_ms();
     let entry = BinanceTrade::new(
       self.ticker.to_string(),
-      format!("{}-{}", time.to_unix_ms(), "ENTRY"),
-      Side::Long,
+      format!("{}-{}", timestamp, "ENTRY"),
+      side,
       OrderType::Limit,
-      long_qty,
+      qty,
       Some(limit),
       None,
       Time::now().to_unix_ms(),
       None,
       None
     );
+    let stop_loss = match self.strategy.stop_loss_pct() {
+      Some(stop_loss_pct) => {
+        let stop_price = BinanceTrade::calc_stop_loss(side, price, stop_loss_pct);
+        Some(BinanceTrade::new(
+          self.ticker.to_string(),
+          format!("{}-{}", timestamp, "STOP_LOSS"),
+          side,
+          OrderType::StopLossLimit,
+          qty,
+          Some(limit), // stop order is triggered at entry to start tracking immediately
+          None,
+          Time::now().to_unix_ms(),
+          Some(stop_price), // stop order exists at the stop loss
+          None
+        ))
+      }
+      None => None
+    };
+    
     Ok(OrderBuilder {
       entry,
-    })
-  }
-
-  fn short_order(&mut self, price: f64, time: Time) -> DreamrunnerResult<OrderBuilder> {
-    let short_qty = self.trade_qty(Side::Short, price)?;
-    let limit = trunc!(price, 2);
-    let entry = BinanceTrade::new(
-      self.ticker.to_string(),
-      format!("{}-{}", time.to_unix_ms(), "ENTRY"),
-      Side::Short,
-      OrderType::Limit,
-      short_qty,
-      Some(limit),
-      None,
-      Time::now().to_unix_ms(),
-      None,
-      None
-    );
-    Ok(OrderBuilder {
-      entry,
+      stop_loss
     })
   }
 
@@ -220,15 +221,21 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
     match signal {
       Signal::EnterLong(info) => {
-        let order = self.long_order(info.price, info.date)?;
-        self.active_order.add_entry(order.entry.clone());
-        self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
+        let builder = self.build_order(info.price, info.date, Side::Long)?;
+        self.active_order.add_entry(builder.entry.clone());
+        if let Some(stop_loss) = builder.stop_loss {
+          self.active_order.add_stop_loss(stop_loss.clone());
+        }
+        self.trade_or_reset::<LimitOrderResponse>(builder.entry).await?;
         Ok(())
       },
       Signal::ExitLong(info) => {
-        let order = self.short_order(info.price, info.date)?;
-        self.active_order.add_entry(order.entry.clone());
-        self.trade_or_reset::<LimitOrderResponse>(order.entry).await?;
+        let builder = self.build_order(info.price, info.date, Side::Short)?;
+        self.active_order.add_entry(builder.entry.clone());
+        if let Some(stop_loss) = builder.stop_loss {
+          self.active_order.add_stop_loss(stop_loss.clone());
+        }
+        self.trade_or_reset::<LimitOrderResponse>(builder.entry).await?;
         Ok(())
       },
       _ => Ok(())
@@ -239,40 +246,31 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   pub async fn process_candle(&mut self, candle: Candle) -> DreamrunnerResult<()> {
     let signals = self.strategy.process_candle(candle, None)?;
     for signal in signals {
-      match signal {
-        Signal::EnterLong(_) => {
-          match &self.active_order.entry {
-            None => {
-              if Signal::None != signal {
-                info!("{}", signal.print());
-                if self.disable_trading {
-                  info!("🟡 Trading disabled");
-                } else {
-                  self.update_assets().await?;
-                  self.handle_signal(signal).await?;
-                }
+      match &self.active_order.entry {
+        None => {
+          match signal {
+            Signal::EnterLong(_) => {
+              info!("{}", signal.print());
+              if self.disable_trading {
+                info!("🟡 Trading disabled");
+              } else {
+                self.update_assets().await?;
+                self.handle_signal(signal).await?;
               }
             }
-            Some(_) => self.check_active_order().await?
-          }
-        }
-        Signal::ExitLong(_) => {
-          match &self.active_order.entry {
-            None => {
-              if Signal::None != signal {
-                info!("{}", signal.print());
-                if self.disable_trading {
-                  info!("🟡 Trading disabled");
-                } else {
-                  self.update_assets().await?;
-                  self.handle_signal(signal).await?;
-                }
+            Signal::ExitLong(_) => {
+              info!("{}", signal.print());
+              if self.disable_trading {
+                info!("🟡 Trading disabled");
+              } else {
+                self.update_assets().await?;
+                self.handle_signal(signal).await?;
               }
             }
-            Some(_) => self.check_active_order().await?
+            _ => ()
           }
         }
-        _ => ()
+        Some(_) => self.check_active_order().await?
       }
     }
     Ok(())
@@ -405,7 +403,10 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     let id = ActiveOrder::client_order_id_suffix(&trade.client_order_id);
     match &*id {
       "ENTRY" => {
-        self.active_order.entry = Some(PendingOrActiveOrder::Active(trade))
+        self.active_order.entry = Some(OrderState::Active(trade))
+      }
+      "STOP_LOSS" => {
+        self.active_order.stop_loss = Some(OrderState::Active(trade))
       }
       _ => debug!("Unknown order id: {}", id),
     }
@@ -413,100 +414,146 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   }
 
   fn trade_pnl(&self, entry: &TradeInfo, exit: &TradeInfo) -> DreamrunnerResult<f64> {
-    Ok(trunc!(
-        match entry.side {
-            Side::Long => {
-                (exit.price - entry.price) / entry.price * 100_f64
-            }
-            Side::Short => {
-                (entry.price - exit.price) / entry.price * 100_f64
-            }
-        },
-        5
-    ))
+    let factor = match entry.side {
+      Side::Long => 1.0,
+      Side::Short => -1.0
+    };
+    let pnl = (exit.price - entry.price) / entry.price * factor * 100.0;
+    Ok(trunc!(pnl, 2))
   }
 
   pub async fn check_active_order(&mut self) -> DreamrunnerResult<()> {
     let copy = self.active_order.clone();
     if let Some(entry) = &copy.entry {
+      let all_orders = self.all_orders().await?;
+      let actual_entry = all_orders
+        .iter()
+        .find(|o| o.client_order_id == entry.client_order_id()).cloned();
+      
       match entry {
-        PendingOrActiveOrder::Active(order) => {
-          let id = &order.client_order_id;
-          let actual_order = self
-            .all_orders()
-            .await?
-            .into_iter()
-            .find(|o| &o.client_order_id == id);
-          match actual_order {
+        // entry order has been placed on binance and is new, partially filled, filled, or canceled
+        OrderState::Active(cached_entry) => {
+          // check cached entry versus binance's entry
+          // this is a workaround since the websocket seems to not send updates sometimes,
+          // so we manually fetch from the API and compare against the cached entry
+          let entry = match actual_entry {
             None => {
-              if order.status == OrderStatus::New {
+              if cached_entry.status == OrderStatus::New {
                 // seeming race condition where new order is streamed over websocket 
                 // before API can return it in historical orders request
                 warn!("NEW Active order is missing from historical orders: {:#?}", entry);
               } else {
                 error!("Active order is missing from historical orders: {:#?}", entry);
               }
+              cached_entry.clone()
             }
-            Some(actual_order) => {
-              let actual_order = TradeInfo::from_historical_order(&actual_order)?;
-              if actual_order.status != order.status {
-                info!("🟡 Cached order status, {}, is outdated from actual: {:#?}", order.status.to_str(), actual_order);
-                self.update_active_order(actual_order.clone())?;
-                if actual_order.status == OrderStatus::PartiallyFilled || actual_order.status == OrderStatus::New {
-                  let placed_at = Time::from_unix_ms(actual_order.event_time);
-                  let now = Time::now();
-                  if placed_at.diff_minutes(&now)?.abs() > 10 {
-                    info!("🟡 Reset partially filled order older than 10 minutes");
-                    self.reset_active_order().await?;
-                  }
+            Some(actual_entry) => {
+              let actual_trade = TradeInfo::try_from(&actual_entry)?;
+              if actual_trade.status != cached_entry.status {
+                info!("🟡 Cached order status, {}, is outdated from actual: {:#?}", cached_entry.status.to_str(), actual_trade);
+                self.update_active_order(actual_trade.clone())?;
+                actual_trade
+              } else {
+                cached_entry.clone()
+              }
+            }
+          };
+          if entry.status == OrderStatus::PartiallyFilled || entry.status == OrderStatus::New {
+            // using updated entry, check if order hasn't filled within 10 minutes
+            self.reset_if_stale(&entry).await?;
+          } else if entry.status == OrderStatus::Filled {
+            // entry is filled, place stop loss
+            info!("Order filled: {:#?}", entry);
+            self.check_stop_loss(&all_orders).await?;
+          }
+        }
+        OrderState::Pending(order) => {
+          match actual_entry {
+            Some(actual_entry) => {
+              let order = TradeInfo::try_from(&actual_entry)?;
+              self.update_active_order(order.clone())?;
+              self.reset_if_stale(&order).await?
+            },
+            None => self.reset_if_stale(order).await?
+          }
+        }
+      }
+    }
+    Ok(())
+  }
+  
+  /// Fetch latest stop loss order to ensure cache isn't out of date (websocket sucks for some reason).
+  /// If entry is filled and stop loss is pending, then place the stop loss order.
+  /// If stop loss is active, check if it has filled. 
+  /// If stop loss is stale then reset it. If filled then reset the active order.
+  async fn check_stop_loss(&mut self, all_orders: &[HistoricalOrder]) -> DreamrunnerResult<()> {
+    let copy = self.active_order.clone();
+    if let Some(stop_loss_order) = &copy.stop_loss {
+      let actual_stop_loss = all_orders
+        .iter()
+        .find(|o| o.client_order_id == stop_loss_order.client_order_id()).cloned();
+      
+      match stop_loss_order {
+        OrderState::Pending(cached_stop_loss) => {
+          match actual_stop_loss {
+            Some(actual_stop_loss) => {
+              // websocket failed to update cache, so manually update it
+              warn!("🔴 Cached stop loss is pending, but actual is active with status: {:#?}", actual_stop_loss.status);
+              let stop_loss = TradeInfo::try_from(&actual_stop_loss)?;
+              self.update_active_order(stop_loss.clone())?;
+              self.reset_if_stale(&stop_loss).await?;
+            }
+            None => {
+              // place stop loss order
+              if let Some(OrderState::Active(entry)) = &copy.entry {
+                if entry.status == OrderStatus::PartiallyFilled || entry.status == OrderStatus::Filled {
+                  self.trade_or_reset::<LimitOrderResponse>(cached_stop_loss.clone()).await?;
                 }
               }
             }
           }
-          
-          if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
-            let placed_at = Time::from_unix_ms(order.event_time);
-            let now = Time::now();
-            if placed_at.diff_minutes(&now)?.abs() > 10 {
-              info!("🟡 Reset partially filled order older than 10 minutes");
-              self.reset_active_order().await?;
-            }
-          }
-
-          // if completely filled, set active order to none
-          if order.status == OrderStatus::Filled {
-            info!("Order filled: {:#?}", entry);
-            self.reset_active_order().await?;
-          }
         }
-        PendingOrActiveOrder::Pending(order) => {
-          let actual_order = self
-            .all_orders()
-            .await?
-            .into_iter()
-            .find(|o| o.client_order_id == order.client_order_id);
-          if let Some(actual_order) = actual_order {
-            warn!("Pending order is not actually pending for id: {}", order.client_order_id);
-            let order = TradeInfo::from_historical_order(&actual_order)?;
-            self.update_active_order(order.clone())?;
-            if order.status == OrderStatus::PartiallyFilled || order.status == OrderStatus::New {
-              let placed_at = Time::from_unix_ms(order.event_time);
-              let now = Time::now();
-              if placed_at.diff_minutes(&now)?.abs() > 10 {
-                info!("🟡 Reset partially filled order older than 10 minutes");
-                self.reset_active_order().await?;
+        OrderState::Active(stop_loss) => {
+          match actual_stop_loss {
+            Some(actual_stop_loss) => {
+              // websocket failed to update cache, so manually update it
+              let actual_stop_loss = TradeInfo::try_from(&actual_stop_loss)?;
+              if actual_stop_loss.status != stop_loss.status {
+                self.update_active_order(actual_stop_loss.clone())?;
+                self.reset_if_stale(&actual_stop_loss).await?;
               }
             }
-          } else {
-            let placed_at = Time::from_unix_ms(order.timestamp);
-            let now = Time::now();
-            if placed_at.diff_minutes(&now)?.abs() > 10 {
-              info!("🟡 Reset pending order older than 10 minutes");
-              self.reset_active_order().await?;
+            None => {
+              if stop_loss.status == OrderStatus::PartiallyFilled || stop_loss.status == OrderStatus::New {
+                self.reset_if_stale(stop_loss).await?;
+              } else if stop_loss.status == OrderStatus::Filled {
+                // entry and stop loss have completed, reset everything for the next trade
+                info!("🔴 Stop loss filled: {:#?}", stop_loss);
+                self.reset_active_order().await?;
+              }
             }
           }
         }
       }
+    } else {
+      // no stop loss, just check if entry is filled
+      if let Some(OrderState::Active(entry)) = &self.active_order.entry {
+        if entry.status == OrderStatus::Filled {
+          // entry is filled, reset active order
+          self.reset_active_order().await?;
+        }
+      }
+    }
+    
+    Ok(())
+  }
+  
+  async fn reset_if_stale<O: Timestamp>(&mut self, order: &O) -> DreamrunnerResult<()> {
+    let placed_at = Time::from_unix_ms(order.timestamp());
+    let now = Time::now();
+    if placed_at.diff_minutes(&now)?.abs() > 10 {
+      info!("🟡 Reset pending order older than 10 minutes");
+      self.reset_active_order().await?;
     }
     Ok(())
   }

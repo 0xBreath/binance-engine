@@ -13,17 +13,19 @@ pub struct HalfLife {
   /// 0th index is current datum, Nth index is oldest datum.
   pub cache: DataCache<Data<f64>>,
   pub zscore_threshold: f64,
-  pub bars_since_entry: Option<usize>
+  pub bars_since_entry: Option<usize>,
+  pub stop_loss_pct: Option<f64>
 }
 
 impl HalfLife {
-  pub fn new(capacity: usize, window: usize, zscore_threshold: f64, ticker: String) -> Self {
+  pub fn new(capacity: usize, window: usize, zscore_threshold: f64, ticker: String, stop_loss_pct: Option<f64>) -> Self {
     Self {
       capacity,
       window,
       cache: DataCache::new(capacity, ticker),
       zscore_threshold,
-      bars_since_entry: None
+      bars_since_entry: None,
+      stop_loss_pct,
     }
   }
 
@@ -142,6 +144,10 @@ impl Strategy<Data<f64>> for HalfLife {
       None
     }
   }
+  
+  fn stop_loss_pct(&self) -> Option<f64> {
+    self.stop_loss_pct
+  }
 }
 
 
@@ -202,7 +208,7 @@ async fn btc_half_life() -> anyhow::Result<()> {
   let window = half_life.abs().round() as usize;
   // let window = 10;
 
-  let strat = HalfLife::new(capacity, window, threshold, ticker.clone());
+  let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), Some(stop_loss));
   let mut backtest = Backtest::new(
     strat.clone(),
     1_000.0,

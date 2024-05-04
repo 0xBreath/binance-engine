@@ -834,7 +834,7 @@ impl KlineStream {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Side {
     Long,
     Short,

@@ -16,17 +16,19 @@ pub struct StatArb {
   /// Last N data from current datum.
   /// 0th index is current datum, Nth index is oldest datum.
   pub y: DataCache<Data<f64>>,
-  pub zscore_threshold: f64
+  pub zscore_threshold: f64,
+  pub stop_loss_pct: Option<f64>
 }
 
 impl StatArb {
-  pub fn new(capacity: usize, window: usize, zscore_threshold: f64, x_ticker: String, y_ticker: String) -> Self {
+  pub fn new(capacity: usize, window: usize, zscore_threshold: f64, x_ticker: String, y_ticker: String, stop_loss_pct: Option<f64>) -> Self {
     Self {
       capacity,
       window,
       x: DataCache::new(capacity, x_ticker),
       y: DataCache::new(capacity, y_ticker),
-      zscore_threshold
+      zscore_threshold,
+      stop_loss_pct
     }
   }
 
@@ -99,7 +101,7 @@ impl StatArb {
         };
 
         let mut signals = vec![];
-        
+
         // y increases, spread increases, short y
         // y decreases, spread decreases, long y
 
@@ -180,6 +182,10 @@ impl Strategy<Data<f64>> for StatArb {
       None
     }
   }
+  
+  fn stop_loss_pct(&self) -> Option<f64> {
+    self.stop_loss_pct
+  }
 }
 
 
@@ -211,7 +217,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
-  let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone());
+  let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone(), Some(stop_loss));
 
   let mut backtest = Backtest::new(strat.clone(), 1000.0, fee, compound, leverage, short_selling);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
@@ -322,7 +328,7 @@ async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
   let threshold = 1.0;
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
-  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone());
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), None);
 
   let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1, false);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
@@ -414,7 +420,7 @@ async fn btc_eth_cointegration() -> anyhow::Result<()> {
   let threshold = 1.0;
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
-  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone());
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), None);
 
   let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1, false);
   let btc_csv = PathBuf::from("btcusdt_30m.csv");

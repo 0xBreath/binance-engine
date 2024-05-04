@@ -4,10 +4,11 @@ use crate::model::{OrderType, Side};
 use crate::errors::{DreamrunnerResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 use time_series::trunc;
+use crate::Timestamp;
 
 #[derive(Debug, Clone)]
 pub struct BinanceTrade {
-    /// Ticker symbol (e.g. BTCUSDC
+    /// Ticker symbol (e.g. BTCUSDC)
     pub symbol: String,
     /// Side of the trade (BUY or SELL)
     pub side: Side,
@@ -27,6 +28,11 @@ pub struct BinanceTrade {
     pub stop_price: Option<f64>,
     /// Trailing stop
     pub trailing_delta: Option<u32>,
+}
+impl Timestamp for BinanceTrade {
+    fn timestamp(&self) -> i64 {
+        self.timestamp
+    }
 }
 
 impl BinanceTrade {

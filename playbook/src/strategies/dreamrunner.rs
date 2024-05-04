@@ -13,10 +13,11 @@ pub struct Dreamrunner {
   /// 0th index is current candle, Nth index is oldest candle.
   pub candles: DataCache<Candle>,
   pub kagi: Kagi,
+  pub stop_loss_pct: Option<f64>
 }
 
 impl Dreamrunner {
-  pub fn new(ticker: String, k_rev: f64, k_src: Source, ma_src: Source, ma_period: usize) -> Self {
+  pub fn new(ticker: String, k_rev: f64, k_src: Source, ma_src: Source, ma_period: usize, stop_loss_pct: Option<f64>) -> Self {
     Self {
       ticker: ticker.clone(),
       k_rev,
@@ -25,6 +26,7 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, ticker),
       kagi: Kagi::default(),
+      stop_loss_pct
     }
   }
 
@@ -38,6 +40,7 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, "SOLUSDT".to_string()),
       kagi: Kagi::default(),
+      stop_loss_pct: None
     }
   }
 
@@ -51,6 +54,7 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, "ETHUSDT".to_string()),
       kagi: Kagi::default(),
+      stop_loss_pct: None
     }
   }
 
@@ -64,6 +68,21 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, "BTCUSDT".to_string()),
       kagi: Kagi::default(),
+      stop_loss_pct: None
+    }
+  }
+
+  pub fn btcusd_1d_optimized(stop_loss_pct: Option<f64>) -> Self {
+    let ma_period = 8;
+    Self {
+      ticker: "BTCUSD".to_string(),
+      k_rev: 58.0,
+      k_src: Source::Close,
+      ma_src: Source::Open,
+      ma_period,
+      candles: DataCache::new(ma_period + 1, "BTCUSD".to_string()),
+      kagi: Kagi::default(),
+      stop_loss_pct
     }
   }
 
@@ -160,6 +179,10 @@ impl Strategy<Candle> for Dreamrunner {
   fn cache(&self, _ticker: Option<String>) -> Option<&DataCache<Candle>> {
     Some(&self.candles)
   }
+  
+  fn stop_loss_pct(&self) -> Option<f64> {
+    self.stop_loss_pct
+  }
 }
 
 
@@ -177,7 +200,7 @@ async fn dreamrunner_sol() -> anyhow::Result<()> {
 
   let strategy = Dreamrunner::solusdt_optimized();
   // todo: tiny stop loss makes astronomical returns, but is this realistic?
-  let stop_loss = 0.1;
+  let stop_loss = 1.0;
   let capital = 1_000.0;
   let fee = 0.02;
   let compound = true;
@@ -263,7 +286,58 @@ async fn eth_backtest() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn btc_backtest() -> anyhow::Result<()> {
+async fn btc_1d_backtest() -> anyhow::Result<()> {
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot};
+  use crate::Backtest;
+  dotenv::dotenv().ok();
+  
+  let stop_loss = 5.0;
+  let capital = 1_000.0;
+  let fee = 0.02;
+  let compound = false;
+  let leverage = 1;
+  let short_selling = false;
+  let ticker = "BTCUSD".to_string();
+  let out_file = "btcusd_1d.csv";
+  let strategy = Dreamrunner::new(
+    ticker.clone(),
+    58.0,
+    Source::Close,
+    Source::Open,
+    8,
+    Some(stop_loss)
+  );
+
+  let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
+
+  let csv = PathBuf::from(out_file);
+  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
+  let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
+  backtest.candles.insert(ticker.clone(), csv_series.candles);
+
+  let summary = backtest.backtest(stop_loss)?;
+  
+  summary.print(&ticker);
+  let all_buy_and_hold = backtest.buy_and_hold()?;
+  let buy_and_hold = all_buy_and_hold
+    .get(&ticker)
+    .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
+    .clone();
+  Plot::plot(
+    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
+    "dreamrunner_btcusd_1d_backtest.png",
+    "BTC/USD Dreamrunner Backtest",
+    "Equity",
+    "Unix Millis"
+  )?;
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_30m_backtest() -> anyhow::Result<()> {
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot};
   use crate::Backtest;
@@ -277,11 +351,11 @@ async fn btc_backtest() -> anyhow::Result<()> {
   let leverage = 1;
   let short_selling = false;
   let ticker = "BTCUSDT".to_string();
+  let out_file = "btcusdt_30m.csv";
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
-
-  let out_file = "btcusdt_30m.csv";
+  
   let csv = PathBuf::from(out_file);
   let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
@@ -317,17 +391,17 @@ async fn optimize() -> anyhow::Result<()> {
 
   let stop_loss = 100.0;
   let capital = 1_000.0;
-  let fee = 0.01;
+  let fee = 0.02;
   let compound = true;
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
 
-  let strategy = Dreamrunner::solusdt_optimized();
-  let time_series = "solusdt_30m.csv";
-  let k_rev_start = 0.02;
-  let k_rev_step = 0.01;
-  let out_file = "solusdt_30m_optimal_backtest.png";
-  let ticker = "SOLUSDT".to_string();
+  // let strategy = Dreamrunner::solusdt_optimized();
+  // let time_series = "solusdt_30m.csv";
+  // let k_rev_start = 0.02;
+  // let k_rev_step = 0.01;
+  // let out_file = "solusdt_30m_optimal_backtest.png";
+  // let ticker = "SOLUSDT".to_string();
 
   // let strategy = Dreamrunner::ethusdt_optimized();
   // let time_series = "ethusdt_30m.csv";
@@ -343,8 +417,15 @@ async fn optimize() -> anyhow::Result<()> {
   // let out_file = "btcusdt_30m_optimal_backtest.png";
   // let ticker = "BTCUSDT".to_string();
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(26), None, None, None);
+  let strategy = Dreamrunner::btcusd_1d_optimized(Some(stop_loss));
+  let time_series = "btcusd_1d.csv";
+  let k_rev_start = 1.0;
+  let k_rev_step = 1.0;
+  let out_file = "btcusd_1d_optimal_backtest.png";
+  let ticker = "BTCUSD".to_string();
+
+  let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
 
   let csv = PathBuf::from(time_series);
   let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
@@ -360,7 +441,7 @@ async fn optimize() -> anyhow::Result<()> {
   let mut results: Vec<BacktestResult> = (0..1_000).collect::<Vec<usize>>().into_par_iter().flat_map(|i| {
     let k_rev = trunc!(k_rev_start + (i as f64 * k_rev_step), 4);
 
-    let results: Vec<BacktestResult> = (0..20).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
+    let results: Vec<BacktestResult> = (0..10).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
       let wma_period = j + 1;
       let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
       backtest.candles.insert(ticker.clone(), csv_series.candles.clone());

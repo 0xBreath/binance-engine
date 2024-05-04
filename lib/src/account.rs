@@ -103,7 +103,7 @@ impl Account {
             .client
             .get_signed::<Vec<HistoricalOrder>>(API::Spot(Spot::AllOrders), Some(req)).await?;
         let mut trades: Vec<TradeInfo> = orders.into_iter().flat_map(|o| {
-            match TradeInfo::from_historical_order(&o) {
+            match TradeInfo::try_from(&o) {
                 Ok(trade) => {
                     match trade.status {
                         OrderStatus::Filled => Some(trade),

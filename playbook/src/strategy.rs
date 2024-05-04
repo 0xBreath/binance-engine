@@ -7,4 +7,6 @@ pub trait Strategy<T>: Clone {
   fn push_candle(&mut self, candle: Candle, ticker: Option<String>);
   /// Returns a reference to the candle cache
   fn cache(&self, ticker: Option<String>) -> Option<&DataCache<T>>;
+  
+  fn stop_loss_pct(&self) -> Option<f64>;
 }
