@@ -7,6 +7,7 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::str::FromStr;
+use log::debug;
 use lib::{Account};
 use crate::Strategy;
 
@@ -210,8 +211,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     let mut cum_pct: HashMap<String, Vec<Data<f64>>> = HashMap::new();
     let mut cum_quote: HashMap<String, Vec<Data<f64>>> = HashMap::new();
     let mut pct_per_trade:  HashMap<String, Vec<Data<f64>>> = HashMap::new();
-
-    let pre_backtest = std::time::SystemTime::now();
+    
     if let Some((_, first_series)) = candles.iter().next() {
       let length = first_series.len();
 
@@ -230,11 +230,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
       }
 
       // Iterate over the index of each series
-      let mut index_iter_times = vec![];
       for i in 0..length {
         // Access the i-th element of each vector to simulate getting price update
         // for every ticker at roughly the same time
-        let mut iter_times: Vec<u128> = vec![];
         for (ticker, candles) in candles.iter() {
           let now = std::time::SystemTime::now();
           let candle = candles[i];
@@ -524,20 +522,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
               _ => ()
             }
           }
-          iter_times.push(now.elapsed().unwrap().as_micros());
         }
-        let avg = iter_times.iter().sum::<u128>() as f64 / iter_times.len() as f64;
-        index_iter_times.push(avg);
-      }
-      if !index_iter_times.is_empty() {
-        println!(
-          "Average index iteration time: {}us for {} indices",
-          trunc!(index_iter_times.iter().sum::<f64>() / index_iter_times.len() as f64, 1),
-          index_iter_times.len()
-        );
       }
     }
-    println!("Backtest lasted: {:?}s", trunc!(pre_backtest.elapsed().unwrap().as_secs_f64(), 1));
 
     let cum_quote = cum_quote.iter().map(|(ticker, data)| {
       (ticker.clone(), Dataset::new(data.clone()))

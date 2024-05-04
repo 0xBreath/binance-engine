@@ -230,7 +230,7 @@ async fn dreamrunner_sol() -> anyhow::Result<()> {
   summary.print(&ticker);
   Plot::plot(
     vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
-    "dreamrunner_sol_backtest.png",
+    "dreamrunner_sol_30m_backtest.png",
     "SOL/USDT Dreamrunner Backtest",
     "% ROI",
     "Unix Millis"
@@ -295,9 +295,9 @@ async fn btc_1d_backtest() -> anyhow::Result<()> {
   let stop_loss = 5.0;
   let capital = 1_000.0;
   let fee = 0.02;
-  let compound = false;
+  let compound = true;
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
   let ticker = "BTCUSD".to_string();
   let out_file = "btcusd_1d.csv";
   let strategy = Dreamrunner::new(
@@ -327,7 +327,7 @@ async fn btc_1d_backtest() -> anyhow::Result<()> {
     .clone();
   Plot::plot(
     vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
-    "dreamrunner_btcusd_1d_backtest.png",
+    "dreamrunner_btc_1d_backtest.png",
     "BTC/USD Dreamrunner Backtest",
     "Equity",
     "Unix Millis"
@@ -389,39 +389,39 @@ async fn optimize() -> anyhow::Result<()> {
   use rayon::prelude::{IntoParallelIterator, ParallelIterator};
   dotenv::dotenv().ok();
 
-  let stop_loss = 100.0;
+  let stop_loss = 1.0;
   let capital = 1_000.0;
   let fee = 0.02;
   let compound = true;
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
 
   // let strategy = Dreamrunner::solusdt_optimized();
   // let time_series = "solusdt_30m.csv";
   // let k_rev_start = 0.02;
   // let k_rev_step = 0.01;
-  // let out_file = "solusdt_30m_optimal_backtest.png";
+  // let out_file = "dreamrunner_sol_30m_optimal_backtest.png";
   // let ticker = "SOLUSDT".to_string();
 
   // let strategy = Dreamrunner::ethusdt_optimized();
   // let time_series = "ethusdt_30m.csv";
   // let k_rev_start = 0.1;
   // let k_rev_step = 0.1;
-  // let out_file = "ethusdt_30m_optimal_backtest.png";
+  // let out_file = "dreamrunner_eth_30m_optimal_backtest.png";
   // let ticker = "ETHUSDT".to_string();
 
   // let strategy = Dreamrunner::btcusdt_optimized();
   // let time_series = "btcusdt_30m.csv";
   // let k_rev_start = 1.0;
   // let k_rev_step = 1.0;
-  // let out_file = "btcusdt_30m_optimal_backtest.png";
+  // let out_file = "dreamrunner_btc_30m_optimal_backtest.png";
   // let ticker = "BTCUSDT".to_string();
 
   let strategy = Dreamrunner::btcusd_1d_optimized(Some(stop_loss));
   let time_series = "btcusd_1d.csv";
   let k_rev_start = 1.0;
   let k_rev_step = 1.0;
-  let out_file = "btcusd_1d_optimal_backtest.png";
+  let out_file = "dreamrunner_btc_1d_optimal_backtest.png";
   let ticker = "BTCUSD".to_string();
 
   let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
@@ -438,10 +438,10 @@ async fn optimize() -> anyhow::Result<()> {
     pub summary: Summary
   }
 
-  let mut results: Vec<BacktestResult> = (0..1_000).collect::<Vec<usize>>().into_par_iter().flat_map(|i| {
+  let mut results: Vec<BacktestResult> = (1..100).collect::<Vec<usize>>().into_par_iter().flat_map(|i| {
     let k_rev = trunc!(k_rev_start + (i as f64 * k_rev_step), 4);
 
-    let results: Vec<BacktestResult> = (0..10).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
+    let results: Vec<BacktestResult> = (1..11).collect::<Vec<usize>>().into_par_iter().flat_map(|j| {
       let wma_period = j + 1;
       let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
       backtest.candles.insert(ticker.clone(), csv_series.candles.clone());
@@ -467,14 +467,14 @@ async fn optimize() -> anyhow::Result<()> {
   println!("Kagi Rev: {}", optimized.k_rev);
   let summary = optimized.summary;
   summary.print(&ticker);
+  backtest.candles.insert(ticker.clone(), csv_series.candles);
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
-  backtest.candles.insert(ticker.clone(), csv_series.candles);
   Plot::plot(
-    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
+    vec![summary.cum_pct(&ticker)?.data().clone()], //, buy_and_hold],
     out_file,
     "Dreamrunner Optimal Backtest",
     "% ROI",

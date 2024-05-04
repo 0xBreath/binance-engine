@@ -61,10 +61,9 @@ impl HalfLife {
         }
 
         // most recent value is 0th index, so this is reversed to get oldest to newest
-        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
+        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y).collect();
         let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
         let lag_spread = spread[..spread.len()-1].to_vec();
-        // println!("s: {}, ls: {}", trunc!(spread[spread.len()-1],2), trunc!(lag_spread[lag_spread.len()-1],2));
 
         let y_0 = self.cache.vec[0].clone();
         let y_1 = self.cache.vec[1].clone();
@@ -80,15 +79,10 @@ impl HalfLife {
 
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
+        let enter_short = z_0.y > self.zscore_threshold;
+        let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
         // let enter_short = exit_long;
         // let exit_short = enter_long;
-        // // let enter_short = z_0.y > self.zscore_threshold;
-        // // let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
-
-        // let enter_long = z_0.y < -self.zscore_threshold;
-        // let exit_long = z_0.y > self.zscore_threshold;
-        let enter_short = exit_long;
-        let exit_short = enter_long;
 
         let info = SignalInfo {
           price: y_0.y,
@@ -156,7 +150,7 @@ impl Strategy<Data<f64>> for HalfLife {
 // ==========================================================================================
 
 #[tokio::test]
-async fn btc_half_life() -> anyhow::Result<()> {
+async fn btc_30m_half_life() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot, trunc};
@@ -234,7 +228,7 @@ async fn btc_half_life() -> anyhow::Result<()> {
         .clone();
       Plot::plot(
         vec![summary.cum_pct(&ticker)?.data().clone(), bah],
-        "half_life_btc_backtest.png",
+        "half_life_btc_30m_backtest.png",
         "BTCUSDT Half Life Backtest",
         "% ROI",
         "Unix Millis"
@@ -246,7 +240,7 @@ async fn btc_half_life() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn btc_hurst() -> anyhow::Result<()> {
+async fn btc_30m_hurst() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, trunc, hurst};
@@ -274,6 +268,138 @@ async fn btc_hurst() -> anyhow::Result<()> {
   
   let hurst_corr = hurst(spread);
   println!("{} hurst: {}", ticker, trunc!(hurst_corr, 2));
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_1d_half_life() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, trunc};
+  use crate::Backtest;
+  use tradestats::metrics::*;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
+  
+  let threshold = 2.0;
+  let ticker = "BTCUSD".to_string();
+  let stop_loss = 100.0;
+  let fee = 0.02;
+  let compound = true;
+  let leverage = 1;
+  let short_selling = false;
+
+  let btc_csv = PathBuf::from("btcusd_1d.csv");
+  let out_file = "half_life_btc_1d_backtest.png";
+  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+    &btc_csv,
+    Some(start_time),
+    Some(end_time),
+    ticker.clone()
+  )?.candles;
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+  
+  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close).collect();
+  let sample_split = 1000;
+
+  // half life of in-sample data (index 0 to 1000)
+  let in_sample: Vec<f64> = series.clone().into_iter().take(sample_split).collect();
+  let half_life = half_life(&in_sample).unwrap();
+  println!("{} half-life: {} bars", ticker, trunc!(half_life, 1));
+  // use this half-life as the strategy window
+  let window = half_life.abs().round() as usize;
+
+  let strat = HalfLife::new(window + 2, window, threshold, ticker.clone(), Some(stop_loss));
+  let mut backtest = Backtest::new(
+    strat.clone(),
+    1_000.0,
+    fee,
+    compound,
+    leverage,
+    short_selling
+  );
+
+  // out-of-sample data (index sample split to end)
+  let out_of_sample = btc_candles[sample_split..].to_vec();
+  backtest.candles.insert(ticker.clone(), out_of_sample.clone());
+  println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
+
+  let summary = backtest.backtest(stop_loss)?;
+  summary.print(&ticker);
+
+  if let Some(trades) = backtest.trades.get(&ticker) {
+    if trades.len() > 1 {
+      let _bah = backtest.buy_and_hold()?
+        .get(&ticker)
+        .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
+        .clone();
+      Plot::plot(
+        // vec![summary.cum_pct(&ticker)?.data().clone(), _bah],
+        vec![summary.cum_pct(&ticker)?.data().clone()],
+        out_file,
+        "BTCUSDT Half Life Backtest",
+        "% ROI",
+        "Unix Millis"
+      )?;
+    }
+  }
+  
+  let zscores: Vec<f64> = rolling_zscore(&series, window).unwrap();
+  let data: Vec<Data<f64>> = zscores.into_iter().enumerate().map(|(i, z)| Data {
+    x: btc_candles[i].date.to_unix_ms(),
+    y: z
+  }).collect();
+  Plot::plot(
+    vec![data],
+    "half_life_btc_1d_zscores.png",
+    "BTCUSD Half Life Z Scores",
+    "Z Score",
+    "Index"
+  )?;
+
+  Ok(())
+}
+
+/// BTC has a hurst of 0.6 on its lagged spread, which means it is trending/momentum.
+/// BTCUSD normal price hurst: 1
+/// BTCUSD normal spread hurst: 0.58
+/// BTCUSD ln price hurst: 1.03
+/// BTCUSD ln spread hurst: 0.6
+#[tokio::test]
+async fn btc_1d_hurst() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, trunc, hurst};
+  use crate::Backtest;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
+
+  let ticker = "BTCUSD".to_string();
+
+  let btc_csv = PathBuf::from("btcusd_1d.csv");
+  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+    &btc_csv,
+    Some(start_time),
+    Some(end_time),
+    ticker.clone()
+  )?.candles;
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+
+  // convert to natural log to linearize time series
+  let normal_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close).collect();
+  let normal_spread: Vec<f64> = normal_series.windows(2).map(|x| x[1] - x[0]).collect();
+  let ln_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
+  let ln_spread: Vec<f64> = ln_series.windows(2).map(|x| x[1] - x[0]).collect();
+
+  println!("{} normal price hurst: {}", ticker, trunc!(hurst(normal_series), 2));
+  println!("{} normal spread hurst: {}", ticker, trunc!(hurst(normal_spread), 2));
+  println!("{} ln price hurst: {}", ticker, trunc!(hurst(ln_series), 2));
+  println!("{} ln spread hurst: {}", ticker, trunc!(hurst(ln_spread), 2));
 
   Ok(())
 }

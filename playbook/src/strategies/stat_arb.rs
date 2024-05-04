@@ -190,11 +190,11 @@ impl Strategy<Data<f64>> for StatArb {
 
 
 // ==========================================================================================
-//                                 StatArb Backtests
+//                                 StatArb 30m Backtests
 // ==========================================================================================
 
 #[tokio::test]
-async fn btc_eth_stat_arb() -> anyhow::Result<()> {
+async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot, hurst, trunc};
@@ -217,9 +217,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
-  let strat = StatArb::new(capacity, window,  threshold, x_ticker.clone(), y_ticker.clone(), Some(stop_loss));
-
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, fee, compound, leverage, short_selling);
+  
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -239,17 +237,24 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
   // earliest point in time is 0th index, latest point in time is Nth index
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
   eth_candles.sort_by_key(|c| c.date.to_unix_ms());
-  // Append to backtest data
-  backtest.candles.insert(x_ticker.clone(), btc_candles.clone());
-  backtest.candles.insert(y_ticker.clone(), eth_candles.clone());
 
   let x: Vec<f64> = btc_candles.clone().into_par_iter().map(|d| d.close).collect();
   let y: Vec<f64> = eth_candles.clone().into_par_iter().map(|d| d.close).collect();
   let spread: Vec<f64> = spread_standard(&x, &y).map_err(
     |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
   )?;
-  println!("Spread Hurst Exponent: {}", trunc!(hurst(spread), 2));
+  println!("Spread Hurst Exponent: {}", trunc!(hurst(spread.clone()), 2));
+  
+  let half_life = half_life(&spread).unwrap();
+  println!("Spread half life: {}", half_life);
+  // let window = half_life.abs().round() as usize;
+  // let capacity = window + 2;
 
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), Some(stop_loss));
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, fee, compound, leverage, short_selling);
+  // Append to backtest data
+  backtest.candles.insert(x_ticker.clone(), btc_candles.clone());
+  backtest.candles.insert(y_ticker.clone(), eth_candles.clone());
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
 
@@ -265,7 +270,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         .clone();
       Plot::plot(
         vec![summary.cum_pct(&x_ticker)?.data().clone(), x_bah],
-        "stat_arb_btc_backtest.png",
+        "stat_arb_btc_30m_backtest.png",
         "BTCUSDT Stat Arb Backtest",
         "% ROI",
         "Unix Millis"
@@ -273,7 +278,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
 
       Plot::plot(
         vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
-        "stat_arb_btc_trades.png",
+        "stat_arb_btc_30m_trades.png",
         "BTCUSDT Stat Arb Trades",
         "% ROI",
         "Unix Millis"
@@ -290,7 +295,7 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
         .clone();
       Plot::plot(
         vec![summary.cum_pct(&y_ticker)?.data().clone(), y_bah],
-        "stat_arb_eth_backtest.png",
+        "stat_arb_eth_30m_backtest.png",
         "ETHUSDT Stat Arb Backtest",
         "% ROI",
         "Unix Millis"
@@ -298,20 +303,19 @@ async fn btc_eth_stat_arb() -> anyhow::Result<()> {
 
       Plot::plot(
         vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
-        "stat_arb_eth_trades.png",
+        "stat_arb_eth_30m_trades.png",
         "ETHUSDT Stat Arb Trades",
         "% ROI",
         "Unix Millis"
       )?;
     }
   }
-
-
+  
   Ok(())
 }
 
 #[tokio::test]
-async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
+async fn btc_eth_30m_spread_zscore() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot, Dataset};
@@ -369,7 +373,7 @@ async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
   let correlation = Dataset::new(correlation.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
   Plot::plot(
     vec![correlation.data().clone()],
-    "btc_eth_correlation.png",
+    "btc_eth_30m_correlation.png",
     "BTC/ETH Correlation",
     "Correlation",
     "Time"
@@ -385,7 +389,7 @@ async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
   let zscore = Dataset::new(zscore.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
   Plot::plot(
     vec![zscore.data().clone()],
-    "btc_eth_spread_zscore.png",
+    "btc_eth_30m_spread_zscore.png",
     "BTC/ETH Spread Z Score",
     "Z Score",
     "Time"
@@ -400,7 +404,7 @@ async fn btc_eth_spread_zscore() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn btc_eth_cointegration() -> anyhow::Result<()> {
+async fn btc_eth_30m_cointegration() -> anyhow::Result<()> {
   use super::*;
   use std::path::PathBuf;
   use time_series::{Time, Day, Month, Plot, Dataset};
@@ -485,14 +489,333 @@ async fn btc_eth_cointegration() -> anyhow::Result<()> {
 
   Plot::plot(
     vec![dynamic_kalman_hedge.data().clone()],
-    "btc_eth_dynamic_kalman_hedge.png",
+    "btc_eth_30m_dynamic_kalman_hedge.png",
     "BTC/ETH Dynamic Kalman Filter Hedge",
     "Hedge Ratio",
     "Time"
   )?;
   Plot::plot(
     vec![roll_coint.data().clone()],
-    "btc_eth_rolling_coint.png",
+    "btc_eth_30m_rolling_coint.png",
+    "BTC/ETH Rolling Cointegration",
+    "Cointegration",
+    "Time"
+  )?;
+
+  Ok(())
+}
+
+
+
+// ==========================================================================================
+//                                 StatArb 1D Backtests
+// ==========================================================================================
+
+
+
+#[tokio::test]
+async fn btc_eth_1d_stat_arb() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, hurst, trunc};
+  use crate::Backtest;
+  use std::collections::HashSet;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2014, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
+
+  let capacity = 100;
+  let window = 10;
+  let threshold = 2.0;
+  let stop_loss = 100.0;
+  let fee = 0.02;
+  let compound = true;
+  let leverage = 1;
+  let short_selling = false;
+
+  let x_ticker = "BTCUSD".to_string();
+  let y_ticker = "ETHUSD".to_string();
+  let btc_csv = PathBuf::from("btcusd_1d.csv");
+  let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let eth_csv = PathBuf::from("ethusd_1d.csv");
+  let mut eth_candles = Backtest::<Data<f64>, StatArb>::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+
+  // retain the overlapping dates between the two time series
+  // Step 1: Create sets of timestamps from both vectors
+  let btc_dates: HashSet<i64> = btc_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  let eth_dates: HashSet<i64> = eth_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  // Step 2: Find the intersection of both timestamp sets
+  let common_timestamps: HashSet<&i64> = btc_dates.intersection(&eth_dates).collect();
+  // Step 3: Filter each vector to keep only the common timestamps
+  btc_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+  eth_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+
+  // Step 4: Sort both vectors by timestamp to ensure they are aligned
+  // earliest point in time is 0th index, latest point in time is Nth index
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+  eth_candles.sort_by_key(|c| c.date.to_unix_ms());
+
+  let x: Vec<f64> = btc_candles.clone().into_par_iter().map(|d| d.close).collect();
+  let y: Vec<f64> = eth_candles.clone().into_par_iter().map(|d| d.close).collect();
+  let spread: Vec<f64> = spread_standard(&x, &y).map_err(
+    |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+  )?;
+  println!("Spread Hurst Exponent: {}", trunc!(hurst(spread.clone()), 2));
+  let half_life = half_life(&spread).unwrap();
+  println!("Spread half life: {}", half_life);
+  // let window = half_life.abs().round() as usize;
+  // let capacity = window + 2;
+  
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), Some(stop_loss));
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, fee, compound, leverage, short_selling);
+  // Append to backtest data
+  backtest.candles.insert(x_ticker.clone(), btc_candles.clone());
+  backtest.candles.insert(y_ticker.clone(), eth_candles.clone());
+  println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
+  println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
+
+  let summary = backtest.backtest(stop_loss)?;
+  let all_buy_and_hold = backtest.buy_and_hold()?;
+
+  if let Some(trades) = backtest.trades.get(&x_ticker) {
+    if trades.len() > 1 {
+      summary.print(&x_ticker);
+      let _x_bah = all_buy_and_hold
+        .get(&x_ticker)
+        .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
+        .clone();
+      Plot::plot(
+        vec![summary.cum_pct(&x_ticker)?.data().clone(), _x_bah],
+        // vec![summary.cum_pct(&x_ticker)?.data().clone()],
+        "stat_arb_btc_1d_backtest.png",
+        "BTCUSD Stat Arb Backtest",
+        "% ROI",
+        "Unix Millis"
+      )?;
+
+      Plot::plot(
+        vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
+        "stat_arb_btc_1d_trades.png",
+        "BTCUSD Stat Arb Trades",
+        "% ROI",
+        "Unix Millis"
+      )?;
+
+    }
+  }
+  if let Some(trades) = backtest.trades.get(&y_ticker) {
+    if trades.len() > 1 {
+      summary.print(&y_ticker);
+      let _y_bah = all_buy_and_hold
+        .get(&y_ticker)
+        .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
+        .clone();
+      Plot::plot(
+        vec![summary.cum_pct(&y_ticker)?.data().clone(), _y_bah],
+        // vec![summary.cum_pct(&y_ticker)?.data().clone()],
+        "stat_arb_eth_1d_backtest.png",
+        "ETHUSD Stat Arb Backtest",
+        "% ROI",
+        "Unix Millis"
+      )?;
+
+      Plot::plot(
+        vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
+        "stat_arb_eth_1d_trades.png",
+        "ETHUSD Stat Arb Trades",
+        "% ROI",
+        "Unix Millis"
+      )?;
+    }
+  }
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_eth_1d_spread_zscore() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, Dataset};
+  use crate::Backtest;
+  use tradestats::metrics::*;
+  use std::collections::HashSet;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2013, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
+
+  let capacity = 10_000;
+  let window = 20;
+  let threshold = 1.0;
+  let x_ticker = "BTCUSD".to_string();
+  let y_ticker = "ETHUSD".to_string();
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), None);
+
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, true, 1, false);
+  let btc_csv = PathBuf::from("btcusd_1d.csv");
+  let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let eth_csv = PathBuf::from("ethusd_1d.csv");
+  let mut eth_candles = Backtest::<Data<f64>, StatArb>::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+
+  // retain the overlapping dates between the two time series
+  // Step 1: Create sets of timestamps from both vectors
+  let btc_dates: HashSet<i64> = btc_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  let eth_dates: HashSet<i64> = eth_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  // Step 2: Find the intersection of both timestamp sets
+  let common_timestamps: HashSet<&i64> = btc_dates.intersection(&eth_dates).collect();
+  // Step 3: Filter each vector to keep only the common timestamps
+  btc_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+  eth_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+
+  // Step 4: Sort both vectors by timestamp to ensure they are aligned
+  // earliest point in time is 0th index, latest point in time is Nth index
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+  eth_candles.sort_by_key(|c| c.date.to_unix_ms());
+  // Append to backtest data
+  backtest.candles.insert(x_ticker.clone(), btc_candles);
+  backtest.candles.insert(y_ticker.clone(), eth_candles);
+
+  println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
+  println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
+
+  let x: Vec<f64> = backtest.candles.get(&x_ticker).unwrap().iter().map(|c| c.close).collect();
+  let y: Vec<f64> = backtest.candles.get(&y_ticker).unwrap().iter().map(|c| c.close).collect();
+  assert_eq!(x.len(), y.len());
+
+  let correlation = rolling_correlation(&x, &y, window).map_err(
+    |e| anyhow::anyhow!("Error calculating rolling correlation: {}", e)
+  )?;
+  assert_eq!(correlation.len(), y.len());
+  assert_eq!(correlation.len(), x.len());
+  let correlation = Dataset::new(correlation.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
+  Plot::plot(
+    vec![correlation.data().clone()],
+    "btc_eth_1d_correlation.png",
+    "BTC/ETH Correlation",
+    "Correlation",
+    "Time"
+  )?;
+
+  let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
+    |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+  )?;
+  assert_eq!(spread.len(), y.len());
+  assert_eq!(spread.len(), x.len());
+  let zscore: Vec<f64> = rolling_zscore(&spread, window).unwrap();
+  assert_eq!(zscore.len(), spread.len());
+  let zscore = Dataset::new(zscore.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
+  Plot::plot(
+    vec![zscore.data().clone()],
+    "btc_eth_30m_spread_zscore.png",
+    "BTC/ETH Spread Z Score",
+    "Z Score",
+    "Time"
+  )?;
+
+  // let spread: Vec<f64> = spread.into_iter().take(10000).collect();
+  let half_life: f64 = half_life(&spread).unwrap();
+  let half_life = half_life.abs().round() as usize;
+  println!("Spread half-life: {} bars", half_life);
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_eth_1d_cointegration() -> anyhow::Result<()> {
+  use super::*;
+  use std::path::PathBuf;
+  use time_series::{Time, Day, Month, Plot, Dataset};
+  use crate::Backtest;
+  use tradestats::kalman::*;
+  use tradestats::metrics::*;
+  use tradestats::utils::*;
+  use std::collections::HashSet;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2014, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
+
+  let capacity = 1000;
+  let window = 20;
+  let threshold = 1.0;
+  let x_ticker = "BTCUSD".to_string();
+  let y_ticker = "ETHUSD".to_string();
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), None);
+
+  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, false, 1, false);
+  let btc_csv = PathBuf::from("btcusd_1d.csv");
+  let mut btc_candles = Backtest::<Data<f64>, StatArb>::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let eth_csv = PathBuf::from("ethusd_1d.csv");
+  let mut eth_candles = Backtest::<Data<f64>, StatArb>::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+
+  // retain the overlapping dates between the two time series
+  // Step 1: Create sets of timestamps from both vectors
+  let btc_dates: HashSet<i64> = btc_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  let eth_dates: HashSet<i64> = eth_candles.iter().map(|c| c.date.to_unix_ms()).collect();
+  // Step 2: Find the intersection of both timestamp sets
+  let common_timestamps: HashSet<&i64> = btc_dates.intersection(&eth_dates).collect();
+  // Step 3: Filter each vector to keep only the common timestamps
+  btc_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+  eth_candles.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+
+  // Step 4: Sort both vectors by timestamp to ensure they are aligned
+  // earliest point in time is 0th index, latest point in time is Nth index
+  btc_candles.sort_by_key(|c| c.date.to_unix_ms());
+  eth_candles.sort_by_key(|c| c.date.to_unix_ms());
+  // Append to backtest data
+  backtest.candles.insert(x_ticker.clone(), btc_candles);
+  backtest.candles.insert(y_ticker.clone(), eth_candles);
+
+  println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
+  println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
+
+  let x: Vec<f64> = backtest.candles.get(&x_ticker).unwrap().iter().map(|c| c.close).collect();
+  let y: Vec<f64> = backtest.candles.get(&y_ticker).unwrap().iter().map(|c| c.close).collect();
+  let x = log_returns(&x, false);
+  let y = log_returns(&y, false);
+  assert_eq!(x.len(), y.len());
+
+  let dynamic_kalman_hedge = Dataset::new(dynamic_hedge_kalman_filter(&x, &y).map_err(
+    |e| anyhow::anyhow!("Error calculating dynamic hedge ratio: {}", e)
+  )?.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
+
+  let coint = engle_granger_cointegration_test(&x, &y).map_err(
+    |e| anyhow::anyhow!("Error calculating Engle-Granger cointegration test: {}", e)
+  )?;
+  println!("Engle-Granger Cointegration Test: {:#?}", coint);
+
+  let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
+    |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+  )?;
+  assert_eq!(spread.len(), y.len());
+  assert_eq!(spread.len(), x.len());
+
+  let window = 20;
+  let roll_coint = rolling_cointegration(&x, &y, window).map_err(
+    |e| anyhow::anyhow!("Error calculating rolling cointegration: {}", e)
+  )?;
+
+  let half_life: f64 = half_life(&roll_coint).unwrap();
+  let half_life = half_life.abs().round() as usize;
+  println!("Rolling cointegration half-life: {} bars", half_life);
+
+  let roll_coint = Dataset::new(rolling_cointegration(&x, &y, window).map_err(
+    |e| anyhow::anyhow!("Error calculating rolling cointegration: {}", e)
+  )?.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
+
+  Plot::plot(
+    vec![dynamic_kalman_hedge.data().clone()],
+    "btc_eth_1d_dynamic_kalman_hedge.png",
+    "BTC/ETH Dynamic Kalman Filter Hedge",
+    "Hedge Ratio",
+    "Time"
+  )?;
+  Plot::plot(
+    vec![roll_coint.data().clone()],
+    "btc_eth_1d_rolling_coint.png",
     "BTC/ETH Rolling Cointegration",
     "Cointegration",
     "Time"
