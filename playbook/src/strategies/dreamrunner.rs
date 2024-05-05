@@ -401,9 +401,9 @@ async fn atlas_1h_backtest() -> anyhow::Result<()> {
   let stop_loss = 1.0;
   let capital = 1_000.0;
   let fee = 0.02;
-  let compound = true;
+  let compound = false;
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
   let strategy = Dreamrunner::atlasusd_1h_optimized(Some(stop_loss));
 
   let time_series = "atlasusd_1h.csv";
