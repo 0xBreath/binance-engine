@@ -175,16 +175,16 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     })
   }
 
-  fn build_order(&mut self, price: f64, time: Time, side: Side) -> DreamrunnerResult<OrderBuilder> {
-    let qty = self.trade_qty(side, price)?;
+  fn build_order(&mut self, price: f64, time: Time, entry_side: Side) -> DreamrunnerResult<OrderBuilder> {
+    let entry_qty = self.trade_qty(entry_side, price)?;
     let limit = trunc!(price, 2);
     let timestamp = time.to_unix_ms();
     let entry = BinanceTrade::new(
       self.ticker.to_string(),
       format!("{}-{}", timestamp, "ENTRY"),
-      side,
+      entry_side,
       OrderType::Limit,
-      qty,
+      entry_qty,
       Some(limit),
       None,
       Time::now().to_unix_ms(),
@@ -193,13 +193,19 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     );
     let stop_loss = match self.strategy.stop_loss_pct() {
       Some(stop_loss_pct) => {
-        let stop_price = BinanceTrade::calc_stop_loss(side, price, stop_loss_pct);
+        // stop loss is opposite side of entry (buy entry has sell stop loss)
+        let stop_loss_side = match entry_side {
+          Side::Long => Side::Short,
+          Side::Short => Side::Long
+        };
+        let stop_price = BinanceTrade::calc_stop_loss(entry_side, price, stop_loss_pct);
+        let stop_loss_qty = self.trade_qty(stop_loss_side, stop_price)?;
         Some(BinanceTrade::new(
           self.ticker.to_string(),
           format!("{}-{}", timestamp, "STOP_LOSS"),
-          side,
+          stop_loss_side,
           OrderType::StopLossLimit,
-          qty,
+          stop_loss_qty,
           Some(limit), // stop order is triggered at entry to start tracking immediately
           None,
           Time::now().to_unix_ms(),

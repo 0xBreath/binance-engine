@@ -27,13 +27,13 @@ impl Klines {
   fn build(&self) -> BTreeMap<String, String> {
     let mut btree = BTreeMap::<String, String>::new();
     btree.insert("symbol".to_string(), self.symbol.to_string());
-    btree.insert("interval".to_string(), self.interval.to_string());
     if let Some(start_time) = self.start_time {
       btree.insert("startTime".to_string(), start_time.to_string());
     }
     if let Some(end_time) = self.end_time {
       btree.insert("endTime".to_string(), end_time.to_string());
     }
+    btree.insert("interval".to_string(), self.interval.to_string());
     btree.insert("limit".to_string(), self.limit.to_string());
     btree
   }
@@ -41,10 +41,11 @@ impl Klines {
   fn create_request(&self) -> String {
     let btree = self.build();
     let mut request = String::new();
-    for (key, value) in btree.iter() {
+    for (key, value) in btree.iter().rev() {
       request.push_str(&format!("{}={}&", key, value));
     }
     request.pop();
+    println!("{}", request);
     request
   }
 }

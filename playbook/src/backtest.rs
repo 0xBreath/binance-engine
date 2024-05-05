@@ -7,7 +7,6 @@ use std::fs::File;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::str::FromStr;
-use log::debug;
 use lib::{Account};
 use crate::Strategy;
 
@@ -108,8 +107,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     })
   }
 
-  pub async fn add_klines(
-    &mut self,
+  pub async fn klines(
     account: &Account,
     start_time: Option<Time>,
     end_time: Option<Time>
@@ -131,21 +129,21 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     for kline in klines.into_iter() {
       candles.push(kline.to_candle());
     }
-    // only take candles greater than a timestamp
-    candles.retain(|candle| {
-      match (start_time, end_time) {
-        (Some(start), Some(end)) => {
-          candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
-        },
-        (Some(start), None) => {
-          candle.date.to_unix_ms() > start.to_unix_ms()
-        },
-        (None, Some(end)) => {
-          candle.date.to_unix_ms() < end.to_unix_ms()
-        },
-        (None, None) => true
-      }
-    });
+    // // only take candles greater than a timestamp
+    // candles.retain(|candle| {
+    //   match (start_time, end_time) {
+    //     (Some(start), Some(end)) => {
+    //       candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
+    //     },
+    //     (Some(start), None) => {
+    //       candle.date.to_unix_ms() > start.to_unix_ms()
+    //     },
+    //     (None, Some(end)) => {
+    //       candle.date.to_unix_ms() < end.to_unix_ms()
+    //     },
+    //     (None, None) => true
+    //   }
+    // });
 
     Ok(candles)
   }
@@ -234,7 +232,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
         // Access the i-th element of each vector to simulate getting price update
         // for every ticker at roughly the same time
         for (ticker, candles) in candles.iter() {
-          let now = std::time::SystemTime::now();
           let candle = candles[i];
 
           // check if stop loss is hit
