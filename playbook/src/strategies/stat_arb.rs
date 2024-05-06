@@ -116,8 +116,8 @@ impl StatArb {
         if exit_long {
           if ticker == self.x.id {
             // todo: do not touch this
-            signals.push(Signal::EnterLong(x_info.clone()))
-            // signals.push(Signal::ExitLong(x_info.clone()))
+            // signals.push(Signal::EnterLong(x_info.clone()))
+            signals.push(Signal::ExitLong(x_info.clone()))
           } else if ticker == self.y.id {
             // todo: do not touch this
             // signals.push(Signal::ExitLong(y_info.clone()))
@@ -137,8 +137,8 @@ impl StatArb {
         if enter_long {
           if ticker == self.x.id {
             // todo: do not touch this
-            signals.push(Signal::ExitLong(x_info.clone()))
-            // signals.push(Signal::EnterLong(x_info.clone()))
+            // signals.push(Signal::ExitLong(x_info.clone()))
+            signals.push(Signal::EnterLong(x_info.clone()))
           } else if ticker == self.y.id {
             // todo: do not touch this
             // signals.push(Signal::EnterLong(y_info.clone()))
@@ -223,7 +223,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
