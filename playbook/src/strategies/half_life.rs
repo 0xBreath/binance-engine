@@ -64,16 +64,14 @@ impl HalfLife {
         if ticker != self.cache.id {
           return Ok(vec![]);
         }
-        
+
         let series = Dataset::new(self.cache.vec());
-        // let series = Dataframe::normalize_series::<Data<i64, f64>>(&self.cache.vec())?;
+        // let series = Dataframe::normalize_series::<Data<i64, f64>>(series.data().as_slice())?;
         let spread: Vec<f64> = series.data().windows(2).map(|x| x[1].y() - x[0].y()).collect();
         let lag_spread = spread[..spread.len() - 1].to_vec();
 
         let y_0 = self.cache.vec[0].clone();
         let y_1 = self.cache.vec[1].clone();
-        // let y_0 = series.data()[series.data().len() - 1].clone();
-        // let y_1 = series.data()[series.data().len() - 2].clone();
 
         let z_0 = Data {
           x: y_0.x(),
@@ -88,8 +86,6 @@ impl HalfLife {
         let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
         let enter_short = z_0.y > self.zscore_threshold;
         let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
-        // let enter_short = exit_long;
-        // let exit_short = enter_long;
 
         let info = SignalInfo {
           price: y_0.y(),
@@ -173,7 +169,7 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   // let compound = true;
   // let leverage = 1;
   // let short_selling = true;
-  
+
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
   let stop_loss = 100.0;
@@ -190,7 +186,7 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
     ticker.clone()
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
-  
+
   // let series = Dataframe::normalize_series::<Candle>(&btc_candles)?;
   let series = Dataset::from(btc_candles.as_slice());
   // let spread = Dataset::new(series.data().windows(2).map(|x| Data {
@@ -199,12 +195,12 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   // }).collect());
 
   // half life of in-sample data (index 0 to 1000)
-  let in_sample: Vec<f64> = series.y().into_iter().take(1000).collect();
+  let in_sample: Vec<f64> = series.y().into_iter().take(100).collect();
   let half_life = half_life(&in_sample).unwrap();
   println!("{} half life: {} bars", ticker, trunc!(half_life, 1));
   // use this half-life as the strategy window
   let window = half_life.abs().round() as usize;
-  // let window = 100;
+  // let window = 10;
   let capacity = window + 2;
 
   let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), Some(stop_loss));
@@ -264,12 +260,49 @@ async fn btc_30m_hurst() -> anyhow::Result<()> {
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
 
+  let chunk_size = 100;
+
   // convert to natural log to linearize time series
-  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
-  let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
-  
-  let hurst_corr = hurst(spread);
-  println!("{} hurst: {}", ticker, trunc!(hurst_corr, 2));
+  let normal_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} normal series {} chunks hurst avg: {}", ticker, chunk_size, avg);
+
+  let normal_spread: Vec<f64> = normal_series.windows(2).map(|x| x[1] - x[0]).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} normal spread {} chunks hurst avg: {}", ticker, chunk_size, avg);
+
+  let ln_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} ln series {} chunks hurst avg: {}", ticker, chunk_size, avg);
+
+  let ln_spread: Vec<f64> = ln_series.windows(2).map(|x| x[1] - x[0]).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} ln spread {} chunks hurst avg: {}", ticker, chunk_size, avg);
+
+  println!("{} normal price hurst: {}", ticker, trunc!(hurst(normal_series), 2));
+  println!("{} normal spread hurst: {}", ticker, trunc!(hurst(normal_spread), 2));
+  println!("{} ln price hurst: {}", ticker, trunc!(hurst(ln_series), 2));
+  println!("{} ln spread hurst: {}", ticker, trunc!(hurst(ln_spread), 2));
 
   Ok(())
 }
@@ -281,7 +314,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
 
   let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
-  
+
   let threshold = 2.0;
   let ticker = "BTCUSD".to_string();
   let stop_loss = 100.0;
@@ -299,7 +332,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
     ticker.clone()
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
-  
+
   let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close).collect();
   let sample_split = 1000;
 
@@ -344,7 +377,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
       )?;
     }
   }
-  
+
   let zscores: Vec<f64> = rolling_zscore(&series, window).unwrap();
   let data: Vec<Data<i64, f64>> = zscores.into_iter().enumerate().map(|(i, z)| Data {
     x: btc_candles[i].x(),
@@ -385,11 +418,44 @@ async fn btc_1d_hurst() -> anyhow::Result<()> {
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
 
+  let chunk_size = 20;
+
   // convert to natural log to linearize time series
   let normal_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} normal series {} chunks hurst avg: {}", ticker, chunk_size, avg);
+  
   let normal_spread: Vec<f64> = normal_series.windows(2).map(|x| x[1] - x[0]).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} normal spread {} chunks hurst avg: {}", ticker, chunk_size, avg);
+  
   let ln_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} ln series {} chunks hurst avg: {}", ticker, chunk_size, avg);
+  
   let ln_spread: Vec<f64> = ln_series.windows(2).map(|x| x[1] - x[0]).collect();
+  let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
+  let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
+    let hurst_corr = hurst(c);
+    trunc!(hurst_corr, 2)
+  }).collect();
+  let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
+  println!("{} ln spread {} chunks hurst avg: {}", ticker, chunk_size, avg);
 
   println!("{} normal price hurst: {}", ticker, trunc!(hurst(normal_series), 2));
   println!("{} normal spread hurst: {}", ticker, trunc!(hurst(normal_spread), 2));

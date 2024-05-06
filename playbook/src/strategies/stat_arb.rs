@@ -66,7 +66,7 @@ impl StatArb {
           warn!("Insufficient candles to generate signal");
           return Ok(vec![]);
         }
-        
+
         // compare lagged spread
         let x_0 = self.x.vec[0].clone();
         // let x: Vec<f64> = self.x.vec.par_iter().map(|d| d.y()).collect();
@@ -115,6 +115,7 @@ impl StatArb {
         // process exits before any new entries
         if exit_long {
           if ticker == self.x.id {
+            // signals.push(Signal::EnterLong(x_info.clone()))
             signals.push(Signal::ExitLong(x_info.clone()))
           } else if ticker == self.y.id {
             // signals.push(Signal::ExitLong(y_info.clone()))
@@ -123,7 +124,8 @@ impl StatArb {
         }
         if exit_short {
           if ticker == self.x.id {
-            signals.push(Signal::ExitShort(x_info.clone()))
+            signals.push(Signal::EnterShort(x_info.clone()))
+            // signals.push(Signal::ExitShort(x_info.clone()))
           } else if ticker == self.y.id {
             // signals.push(Signal::ExitShort(y_info.clone()))
             signals.push(Signal::EnterShort(y_info.clone()))
@@ -132,6 +134,7 @@ impl StatArb {
 
         if enter_long {
           if ticker == self.x.id {
+            // signals.push(Signal::ExitLong(x_info.clone()))
             signals.push(Signal::EnterLong(x_info.clone()))
           } else if ticker == self.y.id {
             // signals.push(Signal::EnterLong(y_info.clone()))
@@ -140,7 +143,8 @@ impl StatArb {
         }
         if enter_short {
           if ticker == self.x.id {
-            signals.push(Signal::EnterShort(x_info))
+            signals.push(Signal::ExitShort(x_info))
+            // signals.push(Signal::EnterShort(x_info))
           } else if ticker == self.y.id {
             // signals.push(Signal::EnterShort(y_info))
             signals.push(Signal::ExitShort(y_info))
@@ -257,7 +261,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
       Plot::plot(
         vec![summary.cum_pct(&x_ticker)?.data().clone(), x_bah],
         "stat_arb_btc_30m_backtest.png",
-        "BTCUSDT Stat Arb Backtest",
+        &format!("{} Stat Arb Backtest", x_ticker),
         "% ROI",
         "Unix Millis"
       )?;
@@ -265,7 +269,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
       Plot::plot(
         vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
         "stat_arb_btc_30m_trades.png",
-        "BTCUSDT Stat Arb Trades",
+        &format!("{} Stat Arb Trades", x_ticker),
         "% ROI",
         "Unix Millis"
       )?;
@@ -281,7 +285,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
       Plot::plot(
         vec![summary.cum_pct(&y_ticker)?.data().clone(), y_bah],
         "stat_arb_eth_30m_backtest.png",
-        "ETHUSDT Stat Arb Backtest",
+        &format!("{} Stat Arb Backtest", y_ticker),
         "% ROI",
         "Unix Millis"
       )?;
@@ -289,7 +293,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
       Plot::plot(
         vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
         "stat_arb_eth_30m_trades.png",
-        "ETHUSDT Stat Arb Trades",
+        &format!("{} Stat Arb Trades", y_ticker),
         "% ROI",
         "Unix Millis"
       )?;
@@ -384,7 +388,7 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
   let half_life: f64 = half_life(&spread).unwrap();
   let half_life = half_life.abs().round() as usize;
   println!("Spread half life: {} bars", half_life);
-  
+
   // compare lagged spread
   let x_lag_spread = Dataframe::lagged_spread_series::<Candle>(
     backtest.candles.get(&x_ticker).unwrap()
@@ -409,7 +413,7 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
       y: z
     }
   }).collect());
-  
+
   Plot::plot(
     // vec![x_lag_spread.data().clone(), y_lag_spread.data().clone()],
     // vec![lag_spread_ratio],
@@ -430,7 +434,7 @@ async fn btc_eth_30m_cointegration() -> anyhow::Result<()> {
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
-  
+
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
 
