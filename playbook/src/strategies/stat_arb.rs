@@ -269,7 +269,6 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-
     }
   }
   if let Some(trades) = backtest.trades.get(&y_ticker) {
@@ -451,10 +450,10 @@ async fn btc_eth_30m_cointegration() -> anyhow::Result<()> {
 
   // normalize data using percent change from first price in time series
   let x = Dataframe::normalize_series::<i64, f64, Candle>(
-    &backtest.candles.get(&x_ticker).unwrap()
+    backtest.candles.get(&x_ticker).unwrap()
   )?;
   let y = Dataframe::normalize_series::<i64, f64, Candle>(
-    &backtest.candles.get(&y_ticker).unwrap()
+    backtest.candles.get(&y_ticker).unwrap()
   )?;
   assert_eq!(x.len(), y.len());
 

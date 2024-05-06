@@ -466,7 +466,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
           };
           if entry.status == OrderStatus::PartiallyFilled || entry.status == OrderStatus::New {
             // using updated entry, check if order hasn't filled within 10 minutes
-            self.reset_if_stale(&entry).await?;
+            self.reset_if_stale(&entry, false).await?;
           } else if entry.status == OrderStatus::Filled {
             // entry is filled, place stop loss
             info!("Order filled: {:#?}", entry);
@@ -478,9 +478,9 @@ impl<T, S: Strategy<T>> Engine<T, S> {
             Some(actual_entry) => {
               let order = TradeInfo::try_from(&actual_entry)?;
               self.update_active_order(order.clone())?;
-              self.reset_if_stale(&order).await?
+              self.reset_if_stale(&order, false).await?
             },
-            None => self.reset_if_stale(order).await?
+            None => self.reset_if_stale(order, false).await?
           }
         }
       }
@@ -507,12 +507,13 @@ impl<T, S: Strategy<T>> Engine<T, S> {
               warn!("🔴 Cached stop loss is pending, but actual is active with status: {:#?}", actual_stop_loss.status);
               let stop_loss = TradeInfo::try_from(&actual_stop_loss)?;
               self.update_active_order(stop_loss.clone())?;
-              self.reset_if_stale(&stop_loss).await?;
+              // self.reset_if_stale(&stop_loss, true).await?;
             }
             None => {
               // place stop loss order
               if let Some(OrderState::Active(entry)) = &copy.entry {
                 if entry.status == OrderStatus::PartiallyFilled || entry.status == OrderStatus::Filled {
+                  info!("🟣🟣 Place stop loss order");
                   self.trade_or_reset::<LimitOrderResponse>(cached_stop_loss.clone()).await?;
                 }
               }
@@ -526,12 +527,12 @@ impl<T, S: Strategy<T>> Engine<T, S> {
               let actual_stop_loss = TradeInfo::try_from(&actual_stop_loss)?;
               if actual_stop_loss.status != stop_loss.status {
                 self.update_active_order(actual_stop_loss.clone())?;
-                self.reset_if_stale(&actual_stop_loss).await?;
+                // self.reset_if_stale(&actual_stop_loss, true).await?;
               }
             }
             None => {
-              if stop_loss.status == OrderStatus::PartiallyFilled || stop_loss.status == OrderStatus::New {
-                self.reset_if_stale(stop_loss).await?;
+              if stop_loss.status == OrderStatus::PartiallyFilled {
+                self.reset_if_stale(stop_loss, true).await?;
               } else if stop_loss.status == OrderStatus::Filled {
                 // entry and stop loss have completed, reset everything for the next trade
                 info!("🔴 Stop loss filled: {:#?}", stop_loss);
@@ -554,11 +555,15 @@ impl<T, S: Strategy<T>> Engine<T, S> {
     Ok(())
   }
   
-  async fn reset_if_stale<O: Timestamp>(&mut self, order: &O) -> DreamrunnerResult<()> {
+  async fn reset_if_stale<O: Timestamp>(&mut self, order: &O, is_stop_loss: bool) -> DreamrunnerResult<()> {
     let placed_at = Time::from_unix_ms(order.timestamp());
     let now = Time::now();
     if placed_at.diff_minutes(&now)?.abs() > 10 {
-      info!("🟡 Reset pending order older than 10 minutes");
+      if is_stop_loss {
+        info!("🟡 Reset stale stop loss");
+      } else {
+        info!("🟡 Reset stale entry");
+      }
       self.reset_active_order().await?;
     }
     Ok(())
