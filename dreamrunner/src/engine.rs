@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use chrono::Timelike;
 use crossbeam::channel::Receiver;
 use lib::trade::*;
-use time_series::{trunc, Candle, Time, Signal};
+use time_series::{trunc, Candle, Time, Signal, SignalInfo};
 use playbook::Strategy;
 
 pub struct Engine<T, S: Strategy<T>> {
@@ -229,18 +229,21 @@ impl<T, S: Strategy<T>> Engine<T, S> {
         let builder = self.build_order(info.price, info.date, Side::Long)?;
         self.active_order.add_entry(builder.entry.clone());
         if let Some(stop_loss) = builder.stop_loss {
+          info!("🟣 Adding stop loss to long entry: {:#?}", &stop_loss);
           self.active_order.add_stop_loss(stop_loss.clone());
         }
-        self.trade_or_reset::<LimitOrderResponse>(builder.entry).await?;
+        if !self.disable_trading {
+          self.trade_or_reset::<LimitOrderResponse>(builder.entry).await?;
+        }
         Ok(())
       },
       Signal::ExitLong(info) => {
+        // no stop loss on long take profit (exit order) so don't need to handle stop loss
         let builder = self.build_order(info.price, info.date, Side::Short)?;
         self.active_order.add_entry(builder.entry.clone());
-        if let Some(stop_loss) = builder.stop_loss {
-          self.active_order.add_stop_loss(stop_loss.clone());
+        if !self.disable_trading {
+          self.trade_or_reset::<LimitOrderResponse>(builder.entry).await?;
         }
-        self.trade_or_reset::<LimitOrderResponse>(builder.entry).await?;
         Ok(())
       },
       _ => Ok(())

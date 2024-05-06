@@ -124,8 +124,8 @@ impl StatArb {
         }
         if exit_short {
           if ticker == self.x.id {
-            signals.push(Signal::EnterShort(x_info.clone()))
-            // signals.push(Signal::ExitShort(x_info.clone()))
+            // signals.push(Signal::EnterShort(x_info.clone()))
+            signals.push(Signal::ExitShort(x_info.clone()))
           } else if ticker == self.y.id {
             // todo: do not touch this
             signals.push(Signal::ExitShort(y_info.clone()))
@@ -143,8 +143,8 @@ impl StatArb {
         }
         if enter_short {
           if ticker == self.x.id {
-            signals.push(Signal::ExitShort(x_info))
-            // signals.push(Signal::EnterShort(x_info))
+            // signals.push(Signal::ExitShort(x_info))
+            signals.push(Signal::EnterShort(x_info))
           } else if ticker == self.y.id {
             // todo: do not touch this
             signals.push(Signal::EnterShort(y_info))
