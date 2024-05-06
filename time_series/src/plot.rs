@@ -6,9 +6,9 @@ use crate::Data;
 pub struct Plot;
 
 impl Plot {
-  pub fn plot(series: Vec<Vec<Data<f64>>>, out_file: &str, title: &str, y_label: &str, x_label: &str) -> anyhow::Result<()> {
+  pub fn plot(series: Vec<Vec<Data<i64, f64>>>, out_file: &str, title: &str, y_label: &str, x_label: &str) -> anyhow::Result<()> {
 
-    let all: Vec<&Data<f64>> = series.iter().flatten().collect();
+    let all: Vec<&Data<i64, f64>> = series.iter().flatten().collect();
 
     let mut min_x = i64::MAX;
     let mut max_x = i64::MIN;

@@ -1,18 +1,11 @@
 #![allow(dead_code)]
 #![allow(clippy::unnecessary_cast)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use time_series::{Bet, Candle, Data, Dataset, Order, Signal, Summary, Time, Trade, trunc};
-use std::fs::File;
 use std::marker::PhantomData;
-use std::path::PathBuf;
-use std::str::FromStr;
 use lib::{Account};
 use crate::Strategy;
-
-pub struct CsvSeries {
-  pub candles: Vec<Candle>,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct Backtest<T, S: Strategy<T>> {
@@ -45,61 +38,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
       signals: HashMap::new(),
       _data: PhantomData
     }
-  }
-
-  /// Read candles from CSV file.
-  /// Handles duplicate candles and sorts candles by date.
-  /// Expects date of candle to be in UNIX timestamp format.
-  /// CSV format: date,open,high,low,close,volume
-  pub fn csv_series(csv_path: &PathBuf, start_time: Option<Time>, end_time: Option<Time>, _ticker: String) -> anyhow::Result<CsvSeries> {
-    let file_buffer = File::open(csv_path)?;
-    let mut csv = csv::Reader::from_reader(file_buffer);
-
-    let mut headers = vec![];
-    if let Ok(result) = csv.headers() {
-      for header in result {
-        headers.push(String::from(header));
-      }
-    }
-
-    let mut candles = vec![];
-
-    for record in csv.records().flatten() {
-      let date = Time::from_unix(
-        record[0]
-          .parse::<i64>()
-          .expect("failed to parse candle UNIX timestamp into i64"),
-      );
-      let volume = None;
-      let candle = Candle {
-        date,
-        open: f64::from_str(&record[1])?,
-        high: f64::from_str(&record[2])?,
-        low: f64::from_str(&record[3])?,
-        close: f64::from_str(&record[4])?,
-        volume,
-      };
-      candles.push(candle);
-    }
-    // only take candles greater than a timestamp
-    candles.retain(|candle| {
-      match (start_time, end_time) {
-        (Some(start), Some(end)) => {
-          candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
-        },
-        (Some(start), None) => {
-          candle.date.to_unix_ms() > start.to_unix_ms()
-        },
-        (None, Some(end)) => {
-          candle.date.to_unix_ms() < end.to_unix_ms()
-        },
-        (None, None) => true
-      }
-    });
-
-    Ok(CsvSeries {
-      candles,
-    })
   }
 
   pub async fn klines(account: &Account, start_time: Option<Time>, end_time: Option<Time>) -> anyhow::Result<Vec<Candle>> {
@@ -137,23 +75,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     });
     Ok(candles)
   }
-  
-  pub fn align_pair_series(x: &mut Vec<Candle>, y: &mut Vec<Candle>) -> anyhow::Result<()> {
-    // retain the overlapping dates between the two time series
-    // Step 1: Create sets of timestamps from both vectors
-    let x_dates: HashSet<i64> = x.iter().map(|c| c.date.to_unix_ms()).collect();
-    let y_dates: HashSet<i64> = y.iter().map(|c| c.date.to_unix_ms()).collect();
-    // Step 2: Find the intersection of both timestamp sets
-    let common_timestamps: HashSet<&i64> = x_dates.intersection(&y_dates).collect();
-    // Step 3: Filter each vector to keep only the common timestamps
-    x.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
-    y.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
-    // Step 4: Sort both vectors by timestamp to ensure they are aligned
-    // earliest point in time is 0th index, latest point in time is Nth index
-    x.sort_by_key(|c| c.date.to_unix_ms());
-    y.sort_by_key(|c| c.date.to_unix_ms());
-    Ok(())
-  }
 
   pub fn add_candle(&mut self, candle: Candle, ticker: String) {
     let mut candles = self.candles.get(&ticker).unwrap_or(&vec![]).clone();
@@ -180,7 +101,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
   pub fn buy_and_hold(
     &mut self,
-  ) -> anyhow::Result<HashMap<String, Vec<Data<f64>>>> {
+  ) -> anyhow::Result<HashMap<String, Vec<Data<i64, f64>>>> {
     let mut all_data = HashMap::new();
     let candles = self.candles.clone();
     for (ticker, candles) in candles {
@@ -212,9 +133,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
     let mut cum_capital: HashMap<String, f64> = HashMap::new();
     let mut quote: HashMap<String, f64> = HashMap::new();
-    let mut cum_pct: HashMap<String, Vec<Data<f64>>> = HashMap::new();
-    let mut cum_quote: HashMap<String, Vec<Data<f64>>> = HashMap::new();
-    let mut pct_per_trade:  HashMap<String, Vec<Data<f64>>> = HashMap::new();
+    let mut cum_pct: HashMap<String, Vec<Data<i64, f64>>> = HashMap::new();
+    let mut cum_quote: HashMap<String, Vec<Data<i64, f64>>> = HashMap::new();
+    let mut pct_per_trade:  HashMap<String, Vec<Data<i64, f64>>> = HashMap::new();
     
     if let Some((_, first_series)) = candles.iter().next() {
       let length = first_series.len();

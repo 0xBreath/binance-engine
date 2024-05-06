@@ -16,7 +16,7 @@ pub struct HalfLife {
   pub window: usize,
   /// Last N data from current datum.
   /// 0th index is current datum, Nth index is oldest datum.
-  pub cache: DataCache<Data<f64>>,
+  pub cache: DataCache<Data<i64, f64>>,
   pub zscore_threshold: f64,
   pub bars_since_entry: Option<usize>,
   pub stop_loss_pct: Option<f64>
@@ -91,7 +91,7 @@ impl HalfLife {
 
         let info = SignalInfo {
           price: y_0.y,
-          date: Time::from_unix_ms(y_0.x),
+          date: Time::from_unix_ms(y_0.x()),
           ticker: ticker.clone()
         };
         let mut signals = vec![];
@@ -114,7 +114,7 @@ impl HalfLife {
   }
 }
 
-impl Strategy<Data<f64>> for HalfLife {
+impl Strategy<Data<i64, f64>> for HalfLife {
   /// Appends candle to candle cache and returns a signal (long, short, or do nothing).
   fn process_candle(&mut self, candle: Candle, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     self.push_candle(candle, ticker.clone());
@@ -125,14 +125,14 @@ impl Strategy<Data<f64>> for HalfLife {
     if let Some(ticker) = ticker {
       if ticker == self.cache.id {
         self.cache.push(Data {
-          x: candle.date.to_unix_ms(),
-          y: candle.close
+          x: candle.x(),
+          y: candle.y()
         });
       }
     }
   }
 
-  fn cache(&self, ticker: Option<String>) -> Option<&DataCache<Data<f64>>> {
+  fn cache(&self, ticker: Option<String>) -> Option<&DataCache<Data<i64, f64>>> {
     if let Some(ticker) = ticker{
       if ticker == self.cache.id {
         Some(&self.cache)
@@ -182,7 +182,7 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   let short_selling = true;
 
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+  let mut btc_candles = Dataframe::csv_series(
     &btc_csv,
     Some(start_time),
     Some(end_time),
@@ -199,7 +199,7 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   let half_life = half_life(&in_sample).unwrap();
   println!("{} half-life: {} bars", ticker, trunc!(half_life, 1));
   // use this half-life as the strategy window
-  let window = half_life.abs().round() as usize;
+  // let window = half_life.abs().round() as usize;
   let window = 10;
 
   let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), Some(stop_loss));
@@ -242,9 +242,6 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
 #[tokio::test]
 async fn btc_30m_hurst() -> anyhow::Result<()> {
   use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, trunc, hurst};
-  use crate::Backtest;
   dotenv::dotenv().ok();
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
@@ -254,7 +251,7 @@ async fn btc_30m_hurst() -> anyhow::Result<()> {
   let ticker = "BTCUSDT".to_string();
 
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
-  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+  let mut btc_candles = Dataframe::csv_series(
     &btc_csv,
     Some(start_time),
     Some(end_time),
@@ -290,7 +287,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
 
   let btc_csv = PathBuf::from("btcusd_1d.csv");
   let out_file = "half_life_btc_1d_backtest.png";
-  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+  let mut btc_candles = Dataframe::csv_series(
     &btc_csv,
     Some(start_time),
     Some(end_time),
@@ -344,8 +341,8 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
   }
   
   let zscores: Vec<f64> = rolling_zscore(&series, window).unwrap();
-  let data: Vec<Data<f64>> = zscores.into_iter().enumerate().map(|(i, z)| Data {
-    x: btc_candles[i].date.to_unix_ms(),
+  let data: Vec<Data<i64, f64>> = zscores.into_iter().enumerate().map(|(i, z)| Data {
+    x: btc_candles[i].x(),
     y: z
   }).collect();
   Plot::plot(
@@ -375,7 +372,7 @@ async fn btc_1d_hurst() -> anyhow::Result<()> {
   let ticker = "BTCUSD".to_string();
 
   let btc_csv = PathBuf::from("btcusd_1d.csv");
-  let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
+  let mut btc_candles = Dataframe::csv_series(
     &btc_csv,
     Some(start_time),
     Some(end_time),

@@ -111,9 +111,9 @@ pub struct PerformanceSummary {
 
 #[derive(Debug, Clone)]
 pub struct Summary {
-  pub cum_quote: HashMap<String, Dataset<f64>>,
-  pub cum_pct: HashMap<String, Dataset<f64>>,
-  pub pct_per_trade: HashMap<String, Dataset<f64>>,
+  pub cum_quote: HashMap<String, Dataset<i64, f64>>,
+  pub cum_pct: HashMap<String, Dataset<i64, f64>>,
+  pub pct_per_trade: HashMap<String, Dataset<i64, f64>>,
   pub trades: HashMap<String, Vec<Trade>>,
 }
 impl Summary {
@@ -132,15 +132,15 @@ impl Summary {
     println!("Max Drawdown: {}%", self.max_drawdown(ticker));
   }
   
-  pub fn cum_quote(&self, ticker: &str) -> anyhow::Result<&Dataset<f64>> {
+  pub fn cum_quote(&self, ticker: &str) -> anyhow::Result<&Dataset<i64, f64>> {
     self.cum_quote.get(ticker).ok_or(anyhow::anyhow!("No cum quote for ticker"))
   }
 
-  pub fn cum_pct(&self, ticker: &str) -> anyhow::Result<&Dataset<f64>> {
+  pub fn cum_pct(&self, ticker: &str) -> anyhow::Result<&Dataset<i64, f64>> {
     self.cum_pct.get(ticker).ok_or(anyhow::anyhow!("No cum pct for ticker"))
   }
 
-  pub fn pct_per_trade(&self, ticker: &str) -> anyhow::Result<&Dataset<f64>> {
+  pub fn pct_per_trade(&self, ticker: &str) -> anyhow::Result<&Dataset<i64, f64>> {
     self.pct_per_trade.get(ticker).ok_or(anyhow::anyhow!("No pct per trade for ticker"))
   }
 

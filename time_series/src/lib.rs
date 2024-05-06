@@ -8,6 +8,7 @@ pub mod kagi;
 pub mod data;
 pub mod data_cache;
 pub mod hurst;
+pub mod dataframe;
 
 pub use candle::*;
 pub use time::*;
@@ -17,6 +18,7 @@ pub use kagi::*;
 pub use data::*;
 pub use data_cache::*;
 pub use hurst::*;
+pub use dataframe::*;
 
 use log::*;
 use simplelog::{

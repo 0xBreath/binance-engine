@@ -1,4 +1,4 @@
-use crate::Time;
+use crate::{Time, X, Y};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -17,6 +17,18 @@ pub struct Candle {
     pub close: f64,
     /// Volume
     pub volume: Option<f64>,
+}
+
+impl Y for Candle {
+    fn y(&self) -> f64 {
+        self.close
+    }
+}
+
+impl X for Candle {
+    fn x(&self) -> i64 {
+        self.date.to_unix_ms()
+    }
 }
 
 impl Candle {

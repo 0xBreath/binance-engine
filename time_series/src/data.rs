@@ -1,33 +1,65 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Data<T: Clone> {
-  pub x: i64,
-  pub y: T,
+pub trait Y {
+  fn y(&self) -> f64;
+}
+
+pub trait X {
+  fn x(&self) -> i64;
+}
+
+impl Y for f64 {
+  fn y(&self) -> f64 {
+    *self
+  }
+}
+
+impl X for i64 {
+  fn x(&self) -> i64 {
+    *self
+  }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Dataset<T: Clone>(pub Vec<Data<T>>);
+pub struct Data<XX: Clone + X, YY: Clone + Y> {
+  pub x: XX,
+  pub y: YY,
+}
 
-impl<T: Clone> Dataset<T> {
-  pub fn new(data: Vec<Data<T>>) -> Self { Self(data) }
+impl<XX: Clone + X, YY: Clone + Y> Y for Data<XX, YY> {
+  fn y(&self) -> f64 {
+    self.y.y()
+  }
+}
+
+impl<XX: Clone + X, YY: Clone + Y> X for Data<XX, YY> {
+  fn x(&self) -> i64 {
+    self.x.x()
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Dataset<XX: Clone + X, YY: Clone + Y>(pub Vec<Data<XX, YY>>);
+
+impl<XX: Clone + X, YY: Clone + Y> Dataset<XX, YY> {
+  pub fn new(data: Vec<Data<XX, YY>>) -> Self { Self(data) }
   
-  pub fn asc_order(&self) -> Vec<Data<T>> {
+  pub fn asc_order(&self) -> Vec<Data<XX, YY>> {
     // sort so data.x is in ascending order (highest value is 0th index)
     let mut data = self.0.clone();
-    data.sort_by(|a, b| a.x.cmp(&b.x));
+    data.sort_by(|a, b| a.x().cmp(&b.x()));
     data
   }
   
   pub fn x(&self) -> Vec<i64> {
-    self.0.iter().map(|d| d.x).collect()
+    self.0.iter().map(|d| d.x()).collect()
   }
   
-  pub fn y(&self) -> Vec<T> {
-    self.0.iter().map(|d| d.y.clone()).collect()
+  pub fn y(&self) -> Vec<f64> {
+    self.0.iter().map(|d| d.y()).collect()
   }
   
-  pub fn data(&self) -> &Vec<Data<T>> {
+  pub fn data(&self) -> &Vec<Data<XX, YY>> {
     &self.0
   }
 
