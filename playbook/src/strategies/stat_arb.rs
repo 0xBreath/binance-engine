@@ -115,42 +115,38 @@ impl StatArb {
         // process exits before any new entries
         if exit_long {
           if ticker == self.x.id {
-            // todo: do not touch this
             // signals.push(Signal::EnterLong(x_info.clone()))
             signals.push(Signal::ExitLong(x_info.clone()))
           } else if ticker == self.y.id {
             // todo: do not touch this
-            // signals.push(Signal::ExitLong(y_info.clone()))
             signals.push(Signal::EnterLong(y_info.clone()))
           }
         }
         if exit_short {
           if ticker == self.x.id {
-            // signals.push(Signal::EnterShort(x_info.clone()))
-            signals.push(Signal::ExitShort(x_info.clone()))
+            signals.push(Signal::EnterShort(x_info.clone()))
+            // signals.push(Signal::ExitShort(x_info.clone()))
           } else if ticker == self.y.id {
+            // todo: do not touch this
             signals.push(Signal::ExitShort(y_info.clone()))
-            // signals.push(Signal::EnterShort(y_info.clone()))
           }
         }
 
         if enter_long {
           if ticker == self.x.id {
-            // todo: do not touch this
             // signals.push(Signal::ExitLong(x_info.clone()))
             signals.push(Signal::EnterLong(x_info.clone()))
           } else if ticker == self.y.id {
             // todo: do not touch this
-            // signals.push(Signal::EnterLong(y_info.clone()))
             signals.push(Signal::ExitLong(y_info.clone()))
           }
         }
         if enter_short {
           if ticker == self.x.id {
-            // signals.push(Signal::ExitShort(x_info))
-            signals.push(Signal::EnterShort(x_info))
+            signals.push(Signal::ExitShort(x_info))
+            // signals.push(Signal::EnterShort(x_info))
           } else if ticker == self.y.id {
-            // signals.push(Signal::ExitShort(y_info))
+            // todo: do not touch this
             signals.push(Signal::EnterShort(y_info))
           }
         }
@@ -223,7 +219,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
@@ -270,13 +266,13 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
         "Unix Millis"
       )?;
 
-      Plot::plot(
-        vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
-        "stat_arb_btc_30m_trades.png",
-        &format!("{} Stat Arb Trades", x_ticker),
-        "% ROI",
-        "Unix Millis"
-      )?;
+      // Plot::plot(
+      //   vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
+      //   "stat_arb_btc_30m_trades.png",
+      //   &format!("{} Stat Arb Trades", x_ticker),
+      //   "% ROI",
+      //   "Unix Millis"
+      // )?;
     }
   }
   if let Some(trades) = backtest.trades.get(&y_ticker) {
@@ -294,13 +290,13 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
         "Unix Millis"
       )?;
 
-      Plot::plot(
-        vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
-        "stat_arb_eth_30m_trades.png",
-        &format!("{} Stat Arb Trades", y_ticker),
-        "% ROI",
-        "Unix Millis"
-      )?;
+      // Plot::plot(
+      //   vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
+      //   "stat_arb_eth_30m_trades.png",
+      //   &format!("{} Stat Arb Trades", y_ticker),
+      //   "% ROI",
+      //   "Unix Millis"
+      // )?;
     }
   }
 
