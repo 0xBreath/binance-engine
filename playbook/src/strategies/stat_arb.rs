@@ -70,11 +70,11 @@ impl StatArb {
         // compare lagged spread
         let x_0 = self.x.vec[0].clone();
         // let x: Vec<f64> = self.x.vec.par_iter().map(|d| d.y()).collect();
-        let x = Dataframe::normalize_series::<i64, f64, Data<i64, f64>>(&self.x.vec())?;
+        let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
 
         let y_0 = self.y.vec[0].clone();
         // let y: Vec<f64> = self.y.vec.par_iter().map(|d| d.y()).collect();
-        let y = Dataframe::normalize_series::<i64, f64, Data<i64, f64>>(&self.y.vec())?;
+        let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
 
         let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
           |e| anyhow::anyhow!("Error calculating spread: {}", e)
@@ -229,8 +229,8 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   assert_eq!(x_candles.len(), y_candles.len());
 
   // normalize data using percent change from first price in time series
-  let x = Dataframe::normalize_series::<i64, f64, Candle>(&x_candles)?;
-  let y = Dataframe::normalize_series::<i64, f64, Candle>(&y_candles)?;
+  let x = Dataframe::normalize_series::<Candle>(&x_candles)?;
+  let y = Dataframe::normalize_series::<Candle>(&y_candles)?;
   let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
     |e| anyhow::anyhow!("Error calculating spread: {}", e)
   )?;
@@ -326,8 +326,8 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
 
   // normalize data using percent change from first price in time series
-  let x = Dataframe::normalize_series::<i64, f64, Candle>(backtest.candles.get(&x_ticker).unwrap())?;
-  let y = Dataframe::normalize_series::<i64, f64, Candle>(backtest.candles.get(&y_ticker).unwrap())?;
+  let x = Dataframe::normalize_series::<Candle>(backtest.candles.get(&x_ticker).unwrap())?;
+  let y = Dataframe::normalize_series::<Candle>(backtest.candles.get(&y_ticker).unwrap())?;
   assert_eq!(x.len(), y.len());
 
   Plot::plot(
@@ -386,10 +386,10 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
   println!("Spread half life: {} bars", half_life);
   
   // compare lagged spread
-  let x_lag_spread = Dataframe::lagged_spread_series::<i64, f64, Candle>(
+  let x_lag_spread = Dataframe::lagged_spread_series::<Candle>(
     backtest.candles.get(&x_ticker).unwrap()
   )?;
-  let y_lag_spread = Dataframe::lagged_spread_series::<i64, f64, Candle>(
+  let y_lag_spread = Dataframe::lagged_spread_series::<Candle>(
     backtest.candles.get(&y_ticker).unwrap()
   )?;
   // take the ratio of each index in the spread series
@@ -449,10 +449,10 @@ async fn btc_eth_30m_cointegration() -> anyhow::Result<()> {
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
 
   // normalize data using percent change from first price in time series
-  let x = Dataframe::normalize_series::<i64, f64, Candle>(
+  let x = Dataframe::normalize_series::<Candle>(
     backtest.candles.get(&x_ticker).unwrap()
   )?;
-  let y = Dataframe::normalize_series::<i64, f64, Candle>(
+  let y = Dataframe::normalize_series::<Candle>(
     backtest.candles.get(&y_ticker).unwrap()
   )?;
   assert_eq!(x.len(), y.len());

@@ -87,7 +87,7 @@ impl Dataframe {
   }
 
   /// Redefine each price point as a percentage change relative to the starting price.
-  pub fn normalize_series<XX: Clone + X, YY: Clone + Y, T: Clone + X + Y>(series: &[T]) -> anyhow::Result<Dataset<i64, f64>> {
+  pub fn normalize_series<T: X + Y>(series: &[T]) -> anyhow::Result<Dataset<i64, f64>> {
     let mut series = series.to_vec();
     series.sort_by_key(|c| c.x());
     let d_0 = series.first().unwrap().clone();
@@ -98,7 +98,7 @@ impl Dataframe {
     Ok(x)
   }
   
-  pub fn lagged_spread_series<XX: Clone + X, YY: Clone + Y, T: Clone + X + Y>(series: &[T]) -> anyhow::Result<Dataset<i64, f64>> {
+  pub fn lagged_spread_series<T: X + Y>(series: &[T]) -> anyhow::Result<Dataset<i64, f64>> {
     let mut series = series.to_vec();
     series.sort_by_key(|c| c.x());
     let spread: Vec<Data<i64, f64>> = series.windows(2).map(|x| Data {

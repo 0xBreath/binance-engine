@@ -64,33 +64,35 @@ impl HalfLife {
         if ticker != self.cache.id {
           return Ok(vec![]);
         }
-
-        // most recent value is 0th index, so this is reversed to get oldest to newest
-        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().map(|d| d.y.ln()).collect();
-        let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
-        let lag_spread = spread[..spread.len()-1].to_vec();
+        
+        let series = Dataset::new(self.cache.vec());
+        // let series = Dataframe::normalize_series::<Data<i64, f64>>(&self.cache.vec())?;
+        let spread: Vec<f64> = series.data().windows(2).map(|x| x[1].y() - x[0].y()).collect();
+        let lag_spread = spread[..spread.len() - 1].to_vec();
 
         let y_0 = self.cache.vec[0].clone();
         let y_1 = self.cache.vec[1].clone();
+        // let y_0 = series.data()[series.data().len() - 1].clone();
+        // let y_1 = series.data()[series.data().len() - 2].clone();
 
         let z_0 = Data {
-          x: y_0.x,
+          x: y_0.x(),
           y: Self::zscore(&spread, self.window)?
         };
         let z_1 = Data {
-          x: y_1.x,
+          x: y_1.x(),
           y: Self::zscore(&lag_spread, self.window)?
         };
 
-        let enter_long = z_0.y < -self.zscore_threshold;
-        let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
-        // let enter_short = z_0.y > self.zscore_threshold;
-        // let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
-        let enter_short = exit_long;
-        let exit_short = enter_long;
+        let enter_long = z_0.y() < -self.zscore_threshold;
+        let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
+        let enter_short = z_0.y > self.zscore_threshold;
+        let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
+        // let enter_short = exit_long;
+        // let exit_short = enter_long;
 
         let info = SignalInfo {
-          price: y_0.y,
+          price: y_0.y(),
           date: Time::from_unix_ms(y_0.x()),
           ticker: ticker.clone()
         };
@@ -171,11 +173,10 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   // let compound = true;
   // let leverage = 1;
   // let short_selling = true;
-
-  let capacity = 1_000;
+  
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
-  let stop_loss = 0.1;
+  let stop_loss = 100.0;
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
@@ -189,22 +190,26 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
     ticker.clone()
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
-
-  // convert to natural log to linearize time series
-  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
-  // let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
+  
+  // let series = Dataframe::normalize_series::<Candle>(&btc_candles)?;
+  let series = Dataset::from(btc_candles.as_slice());
+  // let spread = Dataset::new(series.data().windows(2).map(|x| Data {
+  //   x: x[1].x(),
+  //   y: x[1].y() - x[0].y()
+  // }).collect());
 
   // half life of in-sample data (index 0 to 1000)
-  let in_sample: Vec<f64> = series.clone().into_iter().take(1000).collect();
+  let in_sample: Vec<f64> = series.y().into_iter().take(1000).collect();
   let half_life = half_life(&in_sample).unwrap();
-  println!("{} half-life: {} bars", ticker, trunc!(half_life, 1));
+  println!("{} half life: {} bars", ticker, trunc!(half_life, 1));
   // use this half-life as the strategy window
-  // let window = half_life.abs().round() as usize;
-  let window = 10;
+  let window = half_life.abs().round() as usize;
+  // let window = 100;
+  let capacity = window + 2;
 
   let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), Some(stop_loss));
   let mut backtest = Backtest::new(
-    strat.clone(),
+    strat,
     1_000.0,
     fee,
     bet,

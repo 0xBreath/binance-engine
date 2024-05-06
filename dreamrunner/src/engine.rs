@@ -223,7 +223,6 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   }
 
   // todo: support shorting
-  // todo: support stop loss
   pub async fn handle_signal(&mut self, signal: Signal) -> DreamrunnerResult<()> {
     match signal {
       Signal::EnterLong(info) => {
@@ -283,7 +282,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   }
 
   pub async fn reset_active_order(&mut self) -> DreamrunnerResult<Vec<OrderCanceled>> {
-    info!("🟡 Resetting active order");
+    info!("🟡 Reset active order");
     self.active_order.reset();
     self.cancel_all_open_orders().await
   }
@@ -367,7 +366,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
 
   /// Cancel all open orders for a single symbol
   pub async fn cancel_all_open_orders(&self) -> DreamrunnerResult<Vec<OrderCanceled>> {
-    info!("🟡 Canceling all active orders");
+    info!("🟡 Cancel all active orders");
     let req = CancelOrders::request(self.ticker.clone(), Some(10000));
     let res = self
       .client
@@ -387,7 +386,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   }
 
   pub async fn cancel_order(&self, order_id: u64) -> DreamrunnerResult<OrderCanceled> {
-    debug!("Canceling order {}", order_id);
+    debug!("Cancel order {}", order_id);
     let req = CancelOrder::request(order_id, self.ticker.to_string(), Some(10000));
     let res = self
       .client
@@ -547,6 +546,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
       if let Some(OrderState::Active(entry)) = &self.active_order.entry {
         if entry.status == OrderStatus::Filled {
           // entry is filled, reset active order
+          info!("🟣 No stop loss and filled entry, reset active order");
           self.reset_active_order().await?;
         }
       }

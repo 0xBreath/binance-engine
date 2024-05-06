@@ -202,7 +202,7 @@ impl Account {
 
     /// Cancel all open orders for a single symbol
     pub async fn cancel_all_open_orders(&self) -> DreamrunnerResult<Vec<OrderCanceled>> {
-        info!("Canceling all active orders");
+        info!("Cancel all active orders");
         let req = CancelOrders::request(self.ticker.clone(), Some(10000));
         let res = self
             .client
@@ -222,7 +222,7 @@ impl Account {
     }
 
     pub async fn cancel_order(&self, order_id: u64) -> DreamrunnerResult<OrderCanceled> {
-        debug!("Canceling order {}", order_id);
+        debug!("Cancel order {}", order_id);
         let req = CancelOrder::request(order_id, self.ticker.to_string(), Some(10000));
         let res = self
             .client
