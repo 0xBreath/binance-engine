@@ -1,6 +1,11 @@
+#![allow(unused_imports)]
+
+use std::path::PathBuf;
 use log::{info, warn};
-use crate::{Strategy};
-use time_series::{Candle, Signal, Source, trunc, DataCache, Kagi, SignalInfo};
+use crate::Strategy;
+use time_series::*;
+use rayon::prelude::*;
+use crate::Backtest;
 
 #[derive(Debug, Clone)]
 pub struct Dreamrunner {
@@ -53,7 +58,7 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, "ETHUSDT".to_string()),
       kagi: Kagi::default(),
-      stop_loss_pct: None
+      stop_loss_pct: Some(100.0)
     }
   }
   pub fn btcusdt_optimized() -> Self {
@@ -66,7 +71,7 @@ impl Dreamrunner {
       ma_period,
       candles: DataCache::new(ma_period + 1, "BTCUSDT".to_string()),
       kagi: Kagi::default(),
-      stop_loss_pct: None
+      stop_loss_pct: Some(1.0)
     }
   }
   pub fn btcusd_1d_optimized(stop_loss_pct: Option<f64>) -> Self {
@@ -203,35 +208,26 @@ impl Strategy<Candle> for Dreamrunner {
 #[tokio::test]
 async fn dreamrunner_sol() -> anyhow::Result<()> {
   use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot};
-  use crate::Backtest;
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::solusdt_optimized();
-  // todo: tiny stop loss makes astronomical returns, but is this realistic?
-  let stop_loss = 1.0;
   let capital = 1_000.0;
   let fee = 0.02;
-  let compound = true;
-  let leverage = 5;
-  let short_selling = false;
+  let bet = Bet::Percent(100.0);
+  let leverage = 1;
+  let short_selling = true;
   let ticker = "SOLUSDT".to_string();
-
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(28), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), Some(10), Some(25), None);
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
   let out_file = "solusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee, bet, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
-
-  println!("==== Dreamrunner Backtest ====");
-  let summary = backtest.backtest(stop_loss)?;
+  
+  let summary = backtest.backtest()?;
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
     .get(&ticker)
@@ -252,16 +248,12 @@ async fn dreamrunner_sol() -> anyhow::Result<()> {
 #[tokio::test]
 async fn eth_backtest() -> anyhow::Result<()> {
   use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot};
-  use crate::Backtest;
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::ethusdt_optimized();
-  let stop_loss = 5.0;
   let capital = 1_000.0;
   let fee = 0.15;
-  let compound = false;
+  let bet = Bet::Static;
   let leverage = 1;
   let short_selling = false;
   let ticker = "ETHUSDT".to_string();
@@ -271,11 +263,11 @@ async fn eth_backtest() -> anyhow::Result<()> {
 
   let out_file = "ethusdt_30m.csv";
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
+  let mut backtest = Backtest::new(strategy, capital, fee, bet, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
-  let summary = backtest.backtest(stop_loss)?;
+  let summary = backtest.backtest()?;
 
   println!("==== Dreamrunner Backtest ====");
   summary.print(&ticker);
@@ -285,9 +277,9 @@ async fn eth_backtest() -> anyhow::Result<()> {
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
   Plot::plot(
-    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
+    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
     "ethusdt_30m_backtest.png",
-    "ETH/USDT Dreamrunner Backtest",
+    &format!("{} Dreamrunner Backtest", ticker),
     "Equity",
     "Unix Millis"
   )?;
@@ -297,15 +289,13 @@ async fn eth_backtest() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn btc_1d_backtest() -> anyhow::Result<()> {
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot};
-  use crate::Backtest;
+  use super::*;
   dotenv::dotenv().ok();
   
   let stop_loss = 5.0;
   let capital = 1_000.0;
   let fee = 0.02;
-  let compound = true;
+  let bet = Bet::Percent(100.0);
   let leverage = 1;
   let short_selling = true;
   let ticker = "BTCUSD".to_string();
@@ -323,11 +313,11 @@ async fn btc_1d_backtest() -> anyhow::Result<()> {
   let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
 
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
+  let mut backtest = Backtest::new(strategy, capital, fee, bet, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
-  let summary = backtest.backtest(stop_loss)?;
+  let summary = backtest.backtest()?;
   
   summary.print(&ticker);
   let all_buy_and_hold = backtest.buy_and_hold()?;
@@ -336,9 +326,9 @@ async fn btc_1d_backtest() -> anyhow::Result<()> {
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
   Plot::plot(
-    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
+    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
     "dreamrunner_btc_1d_backtest.png",
-    "BTC/USD Dreamrunner Backtest",
+    &format!("{} Dreamrunner Backtest", ticker),
     "Equity",
     "Unix Millis"
   )?;
@@ -348,16 +338,13 @@ async fn btc_1d_backtest() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn btc_30m_backtest() -> anyhow::Result<()> {
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot};
-  use crate::Backtest;
+  use super::*;
   dotenv::dotenv().ok();
 
   let strategy = Dreamrunner::btcusdt_optimized();
-  let stop_loss = 5.0;
   let capital = 1_000.0;
-  let fee = 0.15;
-  let compound = false;
+  let fee = 0.02;
+  let bet = Bet::Percent(90.0);
   let leverage = 1;
   let short_selling = false;
   let ticker = "BTCUSDT".to_string();
@@ -367,13 +354,12 @@ async fn btc_30m_backtest() -> anyhow::Result<()> {
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(24), None, None, None);
   
   let csv = PathBuf::from(out_file);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
+  let mut backtest = Backtest::new(strategy, capital, fee, bet, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
-  let summary = backtest.backtest(stop_loss)?;
-
-  println!("==== Dreamrunner Backtest ====");
+  let summary = backtest.backtest()?;
+  
   summary.print(&ticker);
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
@@ -381,9 +367,9 @@ async fn btc_30m_backtest() -> anyhow::Result<()> {
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
   Plot::plot(
-    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
-    "btcusdt_30m_backtest.png",
-    "BTC/USDT Dreamrunner Backtest",
+    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
+    "dreamrunner_btc_30m_backtest.png",
+    &format!("{} Dreamrunner Backtest", ticker),
     "Equity",
     "Unix Millis"
   )?;
@@ -393,17 +379,15 @@ async fn btc_30m_backtest() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn atlas_1h_backtest() -> anyhow::Result<()> {
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot};
-  use crate::Backtest;
+  use super::*;
   dotenv::dotenv().ok();
 
   let stop_loss = 1.0;
   let capital = 1_000.0;
   let fee = 0.02;
-  let compound = false;
+  let bet = Bet::Percent(90.0);
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
   let strategy = Dreamrunner::atlasusd_1h_optimized(Some(stop_loss));
 
   let time_series = "atlasusd_1h.csv";
@@ -415,21 +399,14 @@ async fn atlas_1h_backtest() -> anyhow::Result<()> {
 
   // let start_time = Time::new(2022, &Month::from_num(1), &Day::from_num(24), None, None, None);
   // let end_time = Time::new(2022, &Month::from_num(12), &Day::from_num(5), None, None, None);
-  
-  // let start_time = Time::new(2022, &Month::from_num(12), &Day::from_num(5), None, None, None);
-  // let end_time = Time::new(2023, &Month::from_num(10), &Day::from_num(25), None, None, None);
-
-  // let start_time = Time::new(2023, &Month::from_num(10), &Day::from_num(25), None, None, None);
-  // let end_time = Time::new(2024, &Month::from_num(5), &Day::from_num(1), None, None, None);
 
   let csv = PathBuf::from(time_series);
-  let mut backtest = Backtest::new(strategy, capital, fee, compound, leverage, short_selling);
+  let mut backtest = Backtest::new(strategy, capital, fee, bet, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
   backtest.candles.insert(ticker.clone(), csv_series.candles);
 
-  let summary = backtest.backtest(stop_loss)?;
-
-  println!("==== Dreamrunner Backtest ====");
+  let summary = backtest.backtest()?;
+  
   summary.print(&ticker);
   let all_buy_and_hold = backtest.buy_and_hold()?;
   let buy_and_hold = all_buy_and_hold
@@ -437,10 +414,10 @@ async fn atlas_1h_backtest() -> anyhow::Result<()> {
     .ok_or(anyhow::anyhow!("Buy and hold not found for ticker"))?
     .clone();
   Plot::plot(
-    vec![summary.cum_quote(&ticker)?.data().clone(), buy_and_hold],
+    vec![summary.cum_pct(&ticker)?.data().clone(), buy_and_hold],
     out_file,
-    "BTC/USDT Dreamrunner Backtest",
-    "Equity",
+    &format!("{} Dreamrunner Backtest", ticker),
+    "% ROI",
     "Unix Millis"
   )?;
 
@@ -449,10 +426,7 @@ async fn atlas_1h_backtest() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn optimize() -> anyhow::Result<()> {
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, Summary};
-  use crate::Backtest;
-  use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+  use super::*;
   dotenv::dotenv().ok();
 
   // let strategy = Dreamrunner::solusdt_optimized();
@@ -489,18 +463,17 @@ async fn optimize() -> anyhow::Result<()> {
     Source::Close ,
     Source::Open,
     10 ,
-    None
+    Some(1.0)
   );
   let time_series = "atlasusd_1h.csv";
   let k_rev_start = 0.00001;
   let k_rev_step = 0.00001;
   let out_file = "dreamrunner_atlas_1h_optimal_backtest.png";
   let ticker = "ATLASUSD".to_string();
-
-  let stop_loss = 1.0;
+  
   let capital = 1_000.0;
   let fee = 0.02;
-  let compound = true;
+  let bet = Bet::Percent(100.0);
   let leverage = 1;
   let short_selling = false;
 
@@ -508,7 +481,7 @@ async fn optimize() -> anyhow::Result<()> {
   let end_time = Time::new(2023, &Month::from_num(10), &Day::from_num(25), None, None, None);
 
   let csv = PathBuf::from(time_series);
-  let mut backtest = Backtest::new(strategy.clone(), capital, fee, compound, leverage, short_selling);
+  let mut backtest = Backtest::new(strategy.clone(), capital, fee, bet, leverage, short_selling);
   let csv_series = Backtest::<Candle, Dreamrunner>::csv_series(&csv, Some(start_time), Some(end_time), ticker.clone())?;
 
   #[derive(Debug, Clone)]
@@ -526,9 +499,9 @@ async fn optimize() -> anyhow::Result<()> {
       let mut strat = strategy.clone();
       strat.ma_period = wma_period;
       strat.k_rev = k_rev;
-      let mut backtest = Backtest::new(strat, capital, fee, compound, leverage, short_selling);
+      let mut backtest = Backtest::new(strat, capital, fee, bet, leverage, short_selling);
       backtest.candles.insert(ticker.clone(), csv_series.candles.clone());
-      let summary = backtest.backtest(stop_loss)?;
+      let summary = backtest.backtest()?;
       let res = BacktestResult {
         k_rev,
         wma_period,

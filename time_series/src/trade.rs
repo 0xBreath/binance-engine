@@ -4,9 +4,10 @@ use std::collections::HashMap;
 use crate::{Dataset, Time, trunc};
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Bet {
-  Static(f64),
+  #[default]
+  Static,
   Percent(f64)
 }
 
@@ -113,7 +114,7 @@ pub struct Summary {
   pub cum_quote: HashMap<String, Dataset<f64>>,
   pub cum_pct: HashMap<String, Dataset<f64>>,
   pub pct_per_trade: HashMap<String, Dataset<f64>>,
-  pub trades: HashMap<String, Vec<Trade>>
+  pub trades: HashMap<String, Vec<Trade>>,
 }
 impl Summary {
   pub fn print(&self, ticker: &str) {
@@ -188,14 +189,20 @@ impl Summary {
 
   pub fn max_drawdown(&self, ticker: &str) -> f64 {
     let mut max_dd = 0.0;
-    let mut peak = self.cum_quote.get(ticker).unwrap().data().first().unwrap().y;
-
-    for point in self.cum_quote.get(ticker).unwrap().data().iter() {
+    let mut peak = self.cum_pct.get(ticker).unwrap().data().first().unwrap().y;
+  
+    for point in self.cum_pct.get(ticker).unwrap().data().iter() {
       if point.y > peak {
         peak = point.y;
       } else {
-        // -200 - 1400 = = -1600 / 1400 * 100 = -114.29%
-        let dd = ((point.y - peak) / peak * 100.0).max(-100.0);
+        // 1000 + 14% = 1140
+        // 1000 - 35% = 650
+        // max drawdown = -35 - 14 = -49
+        // 650 - 1140 / 1140 = -0.43
+        let y = 1.0 + point.y / 100.0; // 14% = 1.14, -35% = 0.65
+        let p = 1.0 + peak / 100.0;
+        let dd = (y - p) / p * 100.0;
+        // let dd = point.y - peak;
         if dd < max_dd {
           max_dd = dd;
         }

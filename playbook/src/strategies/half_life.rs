@@ -1,7 +1,12 @@
+#![allow(unused_imports)]
+
 use log::warn;
 use rayon::prelude::*;
 use crate::Strategy;
-use time_series::{Candle, Signal, DataCache, Data, SignalInfo, Time};
+use time_series::*;
+use std::path::PathBuf;
+use crate::Backtest;
+use tradestats::metrics::*;
 
 #[derive(Debug, Clone)]
 pub struct HalfLife {
@@ -61,7 +66,7 @@ impl HalfLife {
         }
 
         // most recent value is 0th index, so this is reversed to get oldest to newest
-        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y).collect();
+        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
         let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
         let lag_spread = spread[..spread.len()-1].to_vec();
 
@@ -79,10 +84,10 @@ impl HalfLife {
 
         let enter_long = z_0.y < -self.zscore_threshold;
         let exit_long = z_0.y > 0.0 && z_1.y < 0.0;
-        let enter_short = z_0.y > self.zscore_threshold;
-        let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
-        // let enter_short = exit_long;
-        // let exit_short = enter_long;
+        // let enter_short = z_0.y > self.zscore_threshold;
+        // let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
+        let enter_short = exit_long;
+        let exit_short = enter_long;
 
         let info = SignalInfo {
           price: y_0.y,
@@ -152,14 +157,9 @@ impl Strategy<Data<f64>> for HalfLife {
 #[tokio::test]
 async fn btc_30m_half_life() -> anyhow::Result<()> {
   use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, trunc};
-  use crate::Backtest;
-  use tradestats::metrics::*;
   dotenv::dotenv().ok();
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
   // BTCUSDT optimized
@@ -175,11 +175,11 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   let capacity = 1_000;
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
-  let stop_loss = 100.0;
+  let stop_loss = 0.1;
   let fee = 0.02;
-  let compound = true;
+  let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
 
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut btc_candles = Backtest::<Data<f64>, HalfLife>::csv_series(
@@ -191,7 +191,7 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
 
   // convert to natural log to linearize time series
-  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close).collect();
+  let series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
   // let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
 
   // half life of in-sample data (index 0 to 1000)
@@ -200,14 +200,14 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   println!("{} half-life: {} bars", ticker, trunc!(half_life, 1));
   // use this half-life as the strategy window
   let window = half_life.abs().round() as usize;
-  // let window = 10;
+  let window = 10;
 
   let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), Some(stop_loss));
   let mut backtest = Backtest::new(
     strat.clone(),
     1_000.0,
     fee,
-    compound,
+    bet,
     leverage,
     short_selling
   );
@@ -217,7 +217,7 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   backtest.candles.insert(ticker.clone(), btc_candles);
   println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
-  let summary = backtest.backtest(stop_loss)?;
+  let summary = backtest.backtest()?;
   summary.print(&ticker);
 
   if let Some(trades) = backtest.trades.get(&ticker) {
@@ -275,10 +275,6 @@ async fn btc_30m_hurst() -> anyhow::Result<()> {
 #[tokio::test]
 async fn btc_1d_half_life() -> anyhow::Result<()> {
   use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, Plot, trunc};
-  use crate::Backtest;
-  use tradestats::metrics::*;
   dotenv::dotenv().ok();
 
   let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);
@@ -288,7 +284,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
   let ticker = "BTCUSD".to_string();
   let stop_loss = 100.0;
   let fee = 0.02;
-  let compound = true;
+  let bet = Bet::Percent(100.0);
   let leverage = 1;
   let short_selling = false;
 
@@ -317,7 +313,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
     strat.clone(),
     1_000.0,
     fee,
-    compound,
+    bet,
     leverage,
     short_selling
   );
@@ -327,7 +323,7 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
   backtest.candles.insert(ticker.clone(), out_of_sample.clone());
   println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
-  let summary = backtest.backtest(stop_loss)?;
+  let summary = backtest.backtest()?;
   summary.print(&ticker);
 
   if let Some(trades) = backtest.trades.get(&ticker) {
@@ -371,9 +367,6 @@ async fn btc_1d_half_life() -> anyhow::Result<()> {
 #[tokio::test]
 async fn btc_1d_hurst() -> anyhow::Result<()> {
   use super::*;
-  use std::path::PathBuf;
-  use time_series::{Time, Day, Month, trunc, hurst};
-  use crate::Backtest;
   dotenv::dotenv().ok();
 
   let start_time = Time::new(2012, &Month::from_num(1), &Day::from_num(1), None, None, None);

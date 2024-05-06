@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 #![allow(clippy::unnecessary_cast)]
 
-use std::collections::HashMap;
-use time_series::{Candle, Data, Dataset, Order, Signal, Summary, Time, Trade, trunc};
+use std::collections::{HashMap, HashSet};
+use time_series::{Bet, Candle, Data, Dataset, Order, Signal, Summary, Time, Trade, trunc};
 use std::fs::File;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ pub struct Backtest<T, S: Strategy<T>> {
   pub fee: f64,
   /// If compounded, assumes trading profits are 100% reinvested.
   /// If not compounded, assumed trading with initial capital (e.g. $1000 every trade) and not reinvesting profits.
-  pub compound: bool,
+  pub bet: Bet,
   pub leverage: u8,
   /// False if spot trading, true if margin trading which allows short selling
   pub short_selling: bool,
@@ -32,12 +32,12 @@ pub struct Backtest<T, S: Strategy<T>> {
   _data: PhantomData<T>
 }
 impl<T, S: Strategy<T>> Backtest<T, S> {
-  pub fn new(strategy: S, capital: f64, fee: f64, compound: bool, leverage: u8, short_selling: bool) -> Self {
+  pub fn new(strategy: S, capital: f64, fee: f64, bet: Bet, leverage: u8, short_selling: bool) -> Self {
     Self {
       strategy,
       capital,
       fee,
-      compound,
+      bet,
       leverage,
       short_selling,
       candles: HashMap::new(),
@@ -51,12 +51,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
   /// Handles duplicate candles and sorts candles by date.
   /// Expects date of candle to be in UNIX timestamp format.
   /// CSV format: date,open,high,low,close,volume
-  pub fn csv_series(
-    csv_path: &PathBuf,
-    start_time: Option<Time>,
-    end_time: Option<Time>,
-    _ticker: String
-  ) -> anyhow::Result<CsvSeries> {
+  pub fn csv_series(csv_path: &PathBuf, start_time: Option<Time>, end_time: Option<Time>, _ticker: String) -> anyhow::Result<CsvSeries> {
     let file_buffer = File::open(csv_path)?;
     let mut csv = csv::Reader::from_reader(file_buffer);
 
@@ -107,11 +102,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     })
   }
 
-  pub async fn klines(
-    account: &Account,
-    start_time: Option<Time>,
-    end_time: Option<Time>
-  ) -> anyhow::Result<Vec<Candle>> {
+  pub async fn klines(account: &Account, start_time: Option<Time>, end_time: Option<Time>) -> anyhow::Result<Vec<Candle>> {
     let days_back = match (start_time, end_time) {
       (Some(start), Some(end)) => {
         start.diff_days(&end)?
@@ -129,23 +120,39 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     for kline in klines.into_iter() {
       candles.push(kline.to_candle());
     }
-    // // only take candles greater than a timestamp
-    // candles.retain(|candle| {
-    //   match (start_time, end_time) {
-    //     (Some(start), Some(end)) => {
-    //       candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
-    //     },
-    //     (Some(start), None) => {
-    //       candle.date.to_unix_ms() > start.to_unix_ms()
-    //     },
-    //     (None, Some(end)) => {
-    //       candle.date.to_unix_ms() < end.to_unix_ms()
-    //     },
-    //     (None, None) => true
-    //   }
-    // });
-
+    // only take candles greater than a timestamp
+    candles.retain(|candle| {
+      match (start_time, end_time) {
+        (Some(start), Some(end)) => {
+          candle.date.to_unix_ms() > start.to_unix_ms() && candle.date.to_unix_ms() < end.to_unix_ms()
+        },
+        (Some(start), None) => {
+          candle.date.to_unix_ms() > start.to_unix_ms()
+        },
+        (None, Some(end)) => {
+          candle.date.to_unix_ms() < end.to_unix_ms()
+        },
+        (None, None) => true
+      }
+    });
     Ok(candles)
+  }
+  
+  pub fn align_pair_series(x: &mut Vec<Candle>, y: &mut Vec<Candle>) -> anyhow::Result<()> {
+    // retain the overlapping dates between the two time series
+    // Step 1: Create sets of timestamps from both vectors
+    let x_dates: HashSet<i64> = x.iter().map(|c| c.date.to_unix_ms()).collect();
+    let y_dates: HashSet<i64> = y.iter().map(|c| c.date.to_unix_ms()).collect();
+    // Step 2: Find the intersection of both timestamp sets
+    let common_timestamps: HashSet<&i64> = x_dates.intersection(&y_dates).collect();
+    // Step 3: Filter each vector to keep only the common timestamps
+    x.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+    y.retain(|c| common_timestamps.contains(&c.date.to_unix_ms()));
+    // Step 4: Sort both vectors by timestamp to ensure they are aligned
+    // earliest point in time is 0th index, latest point in time is Nth index
+    x.sort_by_key(|c| c.date.to_unix_ms());
+    y.sort_by_key(|c| c.date.to_unix_ms());
+    Ok(())
   }
 
   pub fn add_candle(&mut self, candle: Candle, ticker: String) {
@@ -197,7 +204,6 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
   pub fn backtest(
     &mut self,
-    stop_loss: f64,
   ) -> anyhow::Result<Summary> {
     let candles = self.candles.clone();
     
@@ -235,17 +241,17 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
           let candle = candles[i];
 
           // check if stop loss is hit
-          if let Some(entry) = active_trades.get(ticker).unwrap() {
+          if let (Some(entry), Some(stop_loss_pct)) = (active_trades.get(ticker).unwrap(), self.strategy.stop_loss_pct()) {
             match entry.side {
               Order::EnterLong => {
                 let pct_diff = (candle.low - entry.price) / entry.price * 100.0;
-                if pct_diff < stop_loss * -1.0 {
-                  let price_at_stop_loss = entry.price * (1.0 - stop_loss / 100.0);
+                if pct_diff < stop_loss_pct * -1.0 {
+                  let price_at_stop_loss = entry.price * (1.0 - stop_loss_pct / 100.0);
                   // longs are stopped out by the low
                   let pct_pnl = (price_at_stop_loss - entry.price) / entry.price * 100.0;
-                  let position_size = match self.compound {
-                    true => *cum_capital.get(ticker).unwrap(),
-                    false => static_capital
+                  let position_size = match self.bet {
+                    Bet::Static => static_capital,
+                    Bet::Percent(pct) => *cum_capital.get(ticker).unwrap() * pct / 100.0
                   };
 
                   // add entry trade with updated quantity
@@ -304,13 +310,13 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                 // spot markets do not allow short selling
                 if self.short_selling {
                   let pct_diff = (candle.high - entry.price) / entry.price * 100.0;
-                  if pct_diff > stop_loss {
-                    let price_at_stop_loss = entry.price * (1.0 + stop_loss / 100.0);
+                  if pct_diff > stop_loss_pct {
+                    let price_at_stop_loss = entry.price * (1.0 + stop_loss_pct / 100.0);
                     // longs are stopped out by the low
                     let pct_pnl = (price_at_stop_loss - entry.price) / entry.price * -1.0 * 100.0;
-                    let position_size = match self.compound {
-                      true => *cum_capital.get(ticker).unwrap(),
-                      false => static_capital
+                    let position_size = match self.bet {
+                      Bet::Static => static_capital,
+                      Bet::Percent(pct) => *cum_capital.get(ticker).unwrap() * pct / 100.0
                     };
 
                     // add entry trade with updated quantity
@@ -390,9 +396,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                 if let Some(entry) = active_trades.get(&info.ticker).unwrap() {
                   if entry.side == Order::EnterLong {
                     let pct_pnl = (info.price - entry.price) / entry.price * 100.0;
-                    let position_size = match self.compound {
-                      true => *cum_capital.get(ticker).unwrap(),
-                      false => static_capital
+                    let position_size = match self.bet {
+                      Bet::Static => static_capital,
+                      Bet::Percent(pct) => *cum_capital.get(ticker).unwrap() * pct / 100.0
                     };
 
                     let quantity = position_size / entry.price;
@@ -462,9 +468,9 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                 if let Some(entry) = active_trades.get(&info.ticker).unwrap() {
                   if entry.side == Order::EnterShort && self.short_selling { 
                     let pct_pnl = (info.price - entry.price) / entry.price * -1.0 * 100.0;
-                    let position_size = match self.compound {
-                      true => *cum_capital.get(ticker).unwrap(),
-                      false => static_capital
+                    let position_size = match self.bet {
+                      Bet::Static => static_capital,
+                      Bet::Percent(pct) => *cum_capital.get(ticker).unwrap() * pct / 100.0
                     };
 
                     let quantity = position_size / entry.price;
