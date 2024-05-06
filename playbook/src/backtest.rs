@@ -2,12 +2,34 @@
 #![allow(clippy::unnecessary_cast)]
 
 use std::collections::HashMap;
-use time_series::{Bet, Candle, Data, Dataset, Order, Signal, Summary, Time, Trade, trunc};
+use time_series::{Bet, Candle, Data, DataCache, Dataset, Order, Signal, Summary, Time, Trade, trunc};
 use std::marker::PhantomData;
 use lib::{Account};
 use crate::Strategy;
 
 #[derive(Debug, Clone, Default)]
+pub struct EmptyStrategy;
+impl Strategy<f64> for EmptyStrategy {
+  /// Receives new candle and returns a signal (long, short, or do nothing).
+  fn process_candle(&mut self, _candle: Candle, _ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
+    Ok(vec![])
+  }
+  /// Appends a candle to the candle cache
+  fn push_candle(&mut self, _candle: Candle, _ticker: Option<String>) {}
+  /// Returns a reference to the candle cache
+  fn cache(&self, _ticker: Option<String>) -> Option<&DataCache<f64>> {
+    None
+  }
+
+  fn stop_loss_pct(&self) -> Option<f64> { None }
+}
+impl EmptyStrategy {
+  pub fn new() -> Self {
+    Self
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct Backtest<T, S: Strategy<T>> {
   pub strategy: S,
   pub capital: f64,
@@ -24,6 +46,24 @@ pub struct Backtest<T, S: Strategy<T>> {
   pub signals: HashMap<String, Vec<Signal>>,
   _data: PhantomData<T>
 }
+
+impl Default for Backtest<f64, EmptyStrategy> {
+  fn default() -> Self {
+    Self {
+      strategy: EmptyStrategy::new(),
+      capital: 1000.0,
+      fee: 0.0,
+      bet: Bet::Static,
+      leverage: 1,
+      short_selling: false,
+      candles: HashMap::new(),
+      trades: HashMap::new(),
+      signals: HashMap::new(),
+      _data: PhantomData
+    }
+  }
+}
+
 impl<T, S: Strategy<T>> Backtest<T, S> {
   pub fn new(strategy: S, capital: f64, fee: f64, bet: Bet, leverage: u8, short_selling: bool) -> Self {
     Self {
@@ -136,7 +176,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
     let mut cum_pct: HashMap<String, Vec<Data<i64, f64>>> = HashMap::new();
     let mut cum_quote: HashMap<String, Vec<Data<i64, f64>>> = HashMap::new();
     let mut pct_per_trade:  HashMap<String, Vec<Data<i64, f64>>> = HashMap::new();
-    
+
     if let Some((_, first_series)) = candles.iter().next() {
       let length = first_series.len();
 

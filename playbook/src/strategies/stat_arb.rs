@@ -9,7 +9,7 @@ use tradestats::metrics::*;
 use tradestats::utils::*;
 use std::path::PathBuf;
 use crate::Backtest;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct StatArb {
@@ -66,14 +66,17 @@ impl StatArb {
           warn!("Insufficient candles to generate signal");
           return Ok(vec![]);
         }
-
+        
+        // compare lagged spread
         let x_0 = self.x.vec[0].clone();
-        let x: Vec<f64> = self.x.vec.par_iter().rev().map(|d| d.y()).collect();
+        // let x: Vec<f64> = self.x.vec.par_iter().map(|d| d.y()).collect();
+        let x = Dataframe::normalize_series::<i64, f64, Data<i64, f64>>(&self.x.vec())?;
 
         let y_0 = self.y.vec[0].clone();
-        let y: Vec<f64> = self.y.vec.par_iter().rev().map(|d| d.y()).collect();
+        // let y: Vec<f64> = self.y.vec.par_iter().map(|d| d.y()).collect();
+        let y = Dataframe::normalize_series::<i64, f64, Data<i64, f64>>(&self.y.vec())?;
 
-        let spread: Vec<f64> = spread_dynamic(&x, &y).map_err(
+        let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
           |e| anyhow::anyhow!("Error calculating spread: {}", e)
         )?;
         assert_eq!(spread.len(), y.len());
@@ -112,35 +115,35 @@ impl StatArb {
         // process exits before any new entries
         if exit_long {
           if ticker == self.x.id {
-            // signals.push(Signal::EnterLong(x_info.clone()))
             signals.push(Signal::ExitLong(x_info.clone()))
           } else if ticker == self.y.id {
-            signals.push(Signal::ExitLong(y_info.clone()))
+            // signals.push(Signal::ExitLong(y_info.clone()))
+            signals.push(Signal::EnterLong(y_info.clone()))
           }
         }
         if exit_short {
           if ticker == self.x.id {
-            // signals.push(Signal::EnterShort(x_info.clone()))
             signals.push(Signal::ExitShort(x_info.clone()))
           } else if ticker == self.y.id {
-            signals.push(Signal::ExitShort(y_info.clone()))
+            // signals.push(Signal::ExitShort(y_info.clone()))
+            signals.push(Signal::EnterShort(y_info.clone()))
           }
         }
 
         if enter_long {
           if ticker == self.x.id {
-            // signals.push(Signal::ExitLong(x_info.clone()))
             signals.push(Signal::EnterLong(x_info.clone()))
           } else if ticker == self.y.id {
-            signals.push(Signal::EnterLong(y_info.clone()))
+            // signals.push(Signal::EnterLong(y_info.clone()))
+            signals.push(Signal::ExitLong(y_info.clone()))
           }
         }
         if enter_short {
           if ticker == self.x.id {
-            // signals.push(Signal::ExitShort(x_info))
             signals.push(Signal::EnterShort(x_info))
           } else if ticker == self.y.id {
-            signals.push(Signal::EnterShort(y_info))
+            // signals.push(Signal::EnterShort(y_info))
+            signals.push(Signal::ExitShort(y_info))
           }
         }
         Ok(signals)
@@ -205,8 +208,8 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
-  let window = 13;
-  let capacity = window + 2;
+  let window = 10;
+  let capacity = window + 6;
   let threshold = 2.0;
   let stop_loss = 10.0;
   let fee = 0.02;
@@ -228,15 +231,10 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   // normalize data using percent change from first price in time series
   let x = Dataframe::normalize_series::<i64, f64, Candle>(&x_candles)?;
   let y = Dataframe::normalize_series::<i64, f64, Candle>(&y_candles)?;
-  let spread: Vec<f64> = spread_standard(&x.y(), &y.y()).map_err(
+  let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
     |e| anyhow::anyhow!("Error calculating spread: {}", e)
   )?;
   println!("Spread Hurst Exponent: {}", trunc!(hurst(spread.clone()), 2));
-
-  let half_life = half_life(&spread).unwrap();
-  println!("Spread half life: {}", half_life);
-  // let window = half_life.abs().round() as usize;
-  // let capacity = window + 2;
 
   let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), Some(stop_loss));
   let mut backtest = Backtest::new(strat, 1000.0, fee, bet, leverage, short_selling);
@@ -303,21 +301,18 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn btc_eth_30m_spread_zscore() -> anyhow::Result<()> {
+async fn btc_eth_30m_spread() -> anyhow::Result<()> {
   use super::*;
   dotenv::dotenv().ok();
 
-  let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
+  let start_time = Time::new(2023, &Month::from_num(2), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
-  let capacity = 100;
   let window = 10;
-  let threshold = 2.0;
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
-  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), None);
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, Bet::Static, 1, false);
+  let mut backtest = Backtest::default();
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut x_candles = Dataframe::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -358,8 +353,8 @@ async fn btc_eth_30m_spread_zscore() -> anyhow::Result<()> {
     "Time"
   )?;
 
-  let spread: Vec<f64> = spread_standard(&x.y(), &y.y()).map_err(
-    |e| anyhow::anyhow!("Error calculating dynamic spread: {}", e)
+  let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
+    |e| anyhow::anyhow!("Error calculating spread: {}", e)
   )?;
   let spread_data = Dataset::new(spread.iter().enumerate().map(|(i, y)| {
     let x = x.x()[i];
@@ -380,6 +375,7 @@ async fn btc_eth_30m_spread_zscore() -> anyhow::Result<()> {
   let zscore = Dataset::new(zscore.iter().enumerate().map(|(i, x)| Data { x: i as i64, y: *x }).collect());
   Plot::plot(
     vec![zscore.data().clone()],
+    // vec![spread_data.data().clone(), zscore.data().clone()],
     "btc_eth_30m_spread_zscore.png",
     "BTC/ETH Spread Z Score",
     "Z Score",
@@ -388,7 +384,42 @@ async fn btc_eth_30m_spread_zscore() -> anyhow::Result<()> {
 
   let half_life: f64 = half_life(&spread).unwrap();
   let half_life = half_life.abs().round() as usize;
-  println!("Spread half-life: {} bars", half_life);
+  println!("Spread half life: {} bars", half_life);
+  
+  // compare lagged spread
+  let x_lag_spread = Dataframe::lagged_spread_series::<i64, f64, Candle>(
+    backtest.candles.get(&x_ticker).unwrap()
+  )?;
+  let y_lag_spread = Dataframe::lagged_spread_series::<i64, f64, Candle>(
+    backtest.candles.get(&y_ticker).unwrap()
+  )?;
+  // take the ratio of each index in the spread series
+  let lag_spread_ratio: Dataset<i64, f64> = Dataset::new(x_lag_spread.data().iter().zip(y_lag_spread.data().iter()).flat_map(|(x, y)| {
+    if y.y() == 0.0 {
+      None
+    } else {
+      Some(Data {
+        x: x.x(),
+        y: x.y() / y.y()
+      })
+    }
+  }).collect());
+  let zscore: Dataset<i64, f64> = Dataset::new(rolling_zscore(&lag_spread_ratio.y(), 100).unwrap().into_iter().enumerate().map(|(i, z)| {
+    Data {
+      x: lag_spread_ratio.x()[i],
+      y: z
+    }
+  }).collect());
+  
+  Plot::plot(
+    // vec![x_lag_spread.data().clone(), y_lag_spread.data().clone()],
+    // vec![lag_spread_ratio],
+    vec![zscore.data().clone()],
+    "btc_eth_30m_lag_spread.png",
+    "BTC & ETH Lagged Spread",
+    "% Spread",
+    "Unix Millis"
+  )?;
 
   Ok(())
 }
@@ -399,17 +430,12 @@ async fn btc_eth_30m_cointegration() -> anyhow::Result<()> {
   dotenv::dotenv().ok();
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
-  // let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(20), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
-
-  let capacity = 1000;
-  let window = 20;
-  let threshold = 1.0;
+  
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
-  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), None);
 
-  let mut backtest = Backtest::new(strat.clone(), 1000.0, 0.0, Bet::Static, 1, false);
+  let mut backtest = Backtest::default();
   let btc_csv = PathBuf::from("btcusdt_30m.csv");
   let mut x_candles = Dataframe::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
   let eth_csv = PathBuf::from("ethusdt_30m.csv");
@@ -422,13 +448,13 @@ async fn btc_eth_30m_cointegration() -> anyhow::Result<()> {
 
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
-  
+
   // normalize data using percent change from first price in time series
   let x = Dataframe::normalize_series::<i64, f64, Candle>(
-    backtest.candles.get(&x_ticker).unwrap()
+    &backtest.candles.get(&x_ticker).unwrap()
   )?;
   let y = Dataframe::normalize_series::<i64, f64, Candle>(
-    backtest.candles.get(&y_ticker).unwrap()
+    &backtest.candles.get(&y_ticker).unwrap()
   )?;
   assert_eq!(x.len(), y.len());
 

@@ -47,7 +47,7 @@ impl<XX: Clone + X, YY: Clone + Y> Dataset<XX, YY> {
   pub fn asc_order(&self) -> Vec<Data<XX, YY>> {
     // sort so data.x is in ascending order (highest value is 0th index)
     let mut data = self.0.clone();
-    data.sort_by(|a, b| a.x().cmp(&b.x()));
+    data.sort_by_key(|a| a.x());
     data
   }
   

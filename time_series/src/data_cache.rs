@@ -26,8 +26,9 @@ impl<T: Clone> DataCache<T> {
     self.vec.front()
   }
 
-  // convert VecDeque to slice
+  /// VecDeque is in reverse order, so we need to reverse it to get 
+  /// first index as earliest element.
   pub fn vec(&self) -> Vec<T> {
-    self.vec.iter().cloned().collect::<Vec<T>>()
+    self.vec.iter().rev().cloned().collect::<Vec<T>>()
   }
 }

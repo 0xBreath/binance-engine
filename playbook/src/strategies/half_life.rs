@@ -66,7 +66,7 @@ impl HalfLife {
         }
 
         // most recent value is 0th index, so this is reversed to get oldest to newest
-        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().rev().map(|d| d.y.ln()).collect();
+        let series: Vec<f64> = self.cache.vec.clone().into_par_iter().map(|d| d.y.ln()).collect();
         let spread: Vec<f64> = series.windows(2).map(|x| x[1] - x[0]).collect();
         let lag_spread = spread[..spread.len()-1].to_vec();
 
