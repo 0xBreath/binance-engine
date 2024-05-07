@@ -98,7 +98,7 @@ impl StatArb {
         let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
         // let enter_long = z_0.y() < -self.zscore_threshold;
         // let exit_long = z_0.y() > self.zscore_threshold;
-        
+
         let enter_short = z_0.y() > self.zscore_threshold;
         let exit_short = z_0.y() < 0.0 && z_1.y() > 0.0;
         // let enter_short = exit_long;
@@ -123,7 +123,7 @@ impl StatArb {
           signals.push(Signal::EnterLong(y_info.clone()))
         }
         if exit_short {
-          signals.push(Signal::EnterShort(x_info.clone()));
+          // signals.push(Signal::EnterShort(x_info.clone()));
           signals.push(Signal::ExitShort(y_info.clone()))
         }
 
@@ -132,7 +132,7 @@ impl StatArb {
           signals.push(Signal::ExitLong(y_info.clone()))
         }
         if enter_short {
-          signals.push(Signal::ExitShort(x_info));
+          // signals.push(Signal::ExitShort(x_info));
           signals.push(Signal::EnterShort(y_info))
         }
         Ok(signals)
@@ -204,7 +204,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();

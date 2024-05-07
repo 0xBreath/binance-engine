@@ -121,7 +121,7 @@ impl ActiveOrder {
   }
   
   pub fn add_stop_loss(&mut self, order: BinanceTrade) {
-    self.entry = Some(OrderState::Pending(order));
+    self.stop_loss = Some(OrderState::Pending(order));
   }
 
   pub fn reset(&mut self) {

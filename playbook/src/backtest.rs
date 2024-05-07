@@ -203,7 +203,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
         }).collect::<Vec<(String, Vec<Candle>)>>();
         for (ticker, candles) in entries.iter() {
           let candle = candles[i];
-          
+
           if i == 0 {
             println!("first: {}", ticker);
           }
