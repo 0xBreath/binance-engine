@@ -65,27 +65,32 @@ impl HalfLife {
           return Ok(vec![]);
         }
 
-        let series = Dataset::new(self.cache.vec());
-        // let series = Dataframe::normalize_series::<Data<i64, f64>>(series.data().as_slice())?;
-        let spread: Vec<f64> = series.data().windows(2).map(|x| x[1].y() - x[0].y()).collect();
-        let lag_spread = spread[..spread.len() - 1].to_vec();
+        // let series = Dataset::new(self.cache.vec());
+        // // let series = Dataframe::normalize_series::<Data<i64, f64>>(series.data().as_slice())?;
+        // let spread: Vec<f64> = series.data().windows(2).map(|x| x[1].y() - x[0].y()).collect();
+        // let lag_spread = spread[..spread.len() - 1].to_vec();
+
+        // let series = Dataframe::normalize_series(self.cache.vec().as_slice())?;
+        let series = Dataset::<i64, f64>::from(self.cache.vec().as_slice());
+        let series = Dataset::new(series.data().windows(2).map(|x| Data {
+          x: x[1].x(),
+          y: x[1].y() - x[0].y()
+        }).collect());
+        let lag_series = Dataset::new(series.data()[..series.data().len() - 1].to_vec());
+        let series = Dataset::new(series.data()[1..series.len()].to_vec());
+        let spread = spread_dynamic(&series.y(), &lag_series.y()).unwrap();
 
         let y_0 = self.cache.vec[0].clone();
-        let y_1 = self.cache.vec[1].clone();
 
         let z_0 = Data {
           x: y_0.x(),
           y: Self::zscore(&spread, self.window)?
         };
-        let z_1 = Data {
-          x: y_1.x(),
-          y: Self::zscore(&lag_spread, self.window)?
-        };
 
         let enter_long = z_0.y() < -self.zscore_threshold;
-        let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
+        let exit_long = z_0.y > 0.0;
         let enter_short = z_0.y > self.zscore_threshold;
-        let exit_short = z_0.y < 0.0 && z_1.y > 0.0;
+        let exit_short = z_0.y < 0.0;
 
         let info = SignalInfo {
           price: y_0.y(),
@@ -160,19 +165,9 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
 
-  // BTCUSDT optimized
-  // let capacity = 1_000;
-  // let threshold = 2.0;
-  // let ticker = "BTCUSDT".to_string();
-  // let stop_loss = 0.1;
-  // let fee = 0.02;
-  // let compound = true;
-  // let leverage = 1;
-  // let short_selling = true;
-
   let threshold = 2.0;
   let ticker = "BTCUSDT".to_string();
-  let stop_loss = 100.0;
+  let stop_loss: Option<f64> = None;
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
@@ -187,23 +182,37 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   )?.candles;
   btc_candles.sort_by_key(|c| c.date.to_unix_ms());
 
-  // let series = Dataframe::normalize_series::<Candle>(&btc_candles)?;
-  let series = Dataset::from(btc_candles.as_slice());
-  // let spread = Dataset::new(series.data().windows(2).map(|x| Data {
-  //   x: x[1].x(),
-  //   y: x[1].y() - x[0].y()
-  // }).collect());
+  let series = Dataframe::normalize_series(&btc_candles)?;
+  // let series = Dataset::<i64, f64>::from(btc_candles.as_slice());
+  let series = Dataset::new(series.data().windows(2).map(|x| Data {
+    x: x[1].x(),
+    y: x[1].y() - x[0].y()
+  }).collect());
+  let lag_series = Dataset::new(series.data()[..series.data().len() - 1].to_vec());
+  let series = Dataset::new(series.data()[1..series.len()].to_vec());
+  let spread = spread_dynamic(&series.y(), &lag_series.y()).unwrap();
 
-  // half life of in-sample data (index 0 to 1000)
-  let in_sample: Vec<f64> = series.y().into_iter().take(100).collect();
-  let half_life = half_life(&in_sample).unwrap();
-  println!("{} half life: {} bars", ticker, trunc!(half_life, 1));
   // use this half-life as the strategy window
-  let window = half_life.abs().round() as usize;
-  // let window = 10;
-  let capacity = window + 2;
+  let hl = half_life(&spread).unwrap();
+  let window = hl.abs().round() as usize;
+  println!("{} spread half life: {} bars", ticker, window);
 
-  let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), Some(stop_loss));
+  // let zscores: Vec<f64> = rolling_zscore(&spread, window).unwrap();
+  // let zscores = Dataset::new(zscores.into_iter().enumerate().map(|(i, z)| Data {
+  //   x: series.x()[i],
+  //   y: z
+  // }).collect());
+  // Plot::plot(
+  //   vec![zscores.data().clone()],
+  //   "half_life_btc_spread_zscores.png",
+  //   "BTCUSDT Normalized Spread Z Scores",
+  //   "Z Score",
+  //   "Index"
+  // )?;
+
+  let window = 28;
+  let capacity = window + 2;
+  let strat = HalfLife::new(capacity, window, threshold, ticker.clone(), stop_loss);
   let mut backtest = Backtest::new(
     strat,
     1_000.0,
@@ -214,13 +223,12 @@ async fn btc_30m_half_life() -> anyhow::Result<()> {
   );
 
   // out-of-sample data (index 1000 to end)
-  let btc_candles = btc_candles[1000..].to_vec();
-  backtest.candles.insert(ticker.clone(), btc_candles);
+  let out_of_sample = btc_candles.clone()[1000..].to_vec();
+  backtest.candles.insert(ticker.clone(), out_of_sample.clone());
   println!("Backtest BTC candles: {}", backtest.candles.get(&ticker).unwrap().len());
 
   let summary = backtest.backtest()?;
   summary.print(&ticker);
-
   if let Some(trades) = backtest.trades.get(&ticker) {
     if trades.len() > 1 {
       let bah = backtest.buy_and_hold()?
@@ -429,7 +437,7 @@ async fn btc_1d_hurst() -> anyhow::Result<()> {
   }).collect();
   let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
   println!("{} normal series {} chunks hurst avg: {}", ticker, chunk_size, avg);
-  
+
   let normal_spread: Vec<f64> = normal_series.windows(2).map(|x| x[1] - x[0]).collect();
   let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
   let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
@@ -438,7 +446,7 @@ async fn btc_1d_hurst() -> anyhow::Result<()> {
   }).collect();
   let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
   println!("{} normal spread {} chunks hurst avg: {}", ticker, chunk_size, avg);
-  
+
   let ln_series: Vec<f64> = btc_candles.clone().into_iter().map(|d| d.close.ln()).collect();
   let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
   let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
@@ -447,7 +455,7 @@ async fn btc_1d_hurst() -> anyhow::Result<()> {
   }).collect();
   let avg = trunc!(chunk_hursts.iter().sum::<f64>() / chunk_hursts.len() as f64, 2);
   println!("{} ln series {} chunks hurst avg: {}", ticker, chunk_size, avg);
-  
+
   let ln_spread: Vec<f64> = ln_series.windows(2).map(|x| x[1] - x[0]).collect();
   let chunks: Vec<Vec<f64>> = normal_series.chunks(chunk_size).map(|x| x.to_vec()).collect();
   let chunk_hursts: Vec<f64> = chunks.into_iter().map(|c| {
