@@ -612,9 +612,8 @@ impl<T, S: Strategy<T>> Engine<T, S> {
       }
       None => {
         if let Some(OrderState::Active(entry)) = &self.active_order.entry {
-          // no stop loss, just check if entry is filled
+          // no stop loss, if entry is filled reset active order
           if entry.status == OrderStatus::Filled {
-            // entry is filled, reset active order
             info!("🟣 Filled entry with no stop loss, reset active order");
             self.reset_active_order().await?;
           }
