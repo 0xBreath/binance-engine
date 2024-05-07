@@ -61,17 +61,21 @@ impl StatArb {
   pub fn signal(&mut self, ticker: Option<String>) -> anyhow::Result<Vec<Signal>> {
     match ticker {
       None => Ok(vec![]),
-      Some(ticker) => {
+      Some(_ticker) => {
         if self.x.vec.len() < self.x.capacity || self.y.vec.len() < self.y.capacity {
           warn!("Insufficient candles to generate signal");
           return Ok(vec![]);
         }
-
-        // compare lagged spread
         let x_0 = self.x.vec[0].clone();
-        let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
-
         let y_0 = self.y.vec[0].clone();
+
+        // todo: will this work live?
+        if x_0.x() != y_0.x() {
+          return Ok(vec![]);
+        }
+
+        // compare spread
+        let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
         let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
 
         let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
@@ -92,8 +96,13 @@ impl StatArb {
 
         let enter_long = z_0.y() < -self.zscore_threshold;
         let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
+        // let enter_long = z_0.y() < -self.zscore_threshold;
+        // let exit_long = z_0.y() > self.zscore_threshold;
+        
         let enter_short = z_0.y() > self.zscore_threshold;
         let exit_short = z_0.y() < 0.0 && z_1.y() > 0.0;
+        // let enter_short = exit_long;
+        // let exit_short = enter_long;
 
         let x_info = SignalInfo {
           price: x_0.y(),
@@ -110,41 +119,21 @@ impl StatArb {
 
         // process exits before any new entries
         if exit_long {
-          if ticker == self.x.id {
-            // signals.push(Signal::EnterLong(x_info.clone()))
-            signals.push(Signal::ExitLong(x_info.clone()))
-          } else if ticker == self.y.id {
-            // todo: do not touch this
-            signals.push(Signal::EnterLong(y_info.clone()))
-          }
+          signals.push(Signal::EnterLong(x_info.clone()));
+          signals.push(Signal::EnterLong(y_info.clone()))
         }
         if exit_short {
-          if ticker == self.x.id {
-            // signals.push(Signal::EnterShort(x_info.clone()))
-            signals.push(Signal::ExitShort(x_info.clone()))
-          } else if ticker == self.y.id {
-            // todo: do not touch this
-            signals.push(Signal::ExitShort(y_info.clone()))
-          }
+          signals.push(Signal::EnterShort(x_info.clone()));
+          signals.push(Signal::ExitShort(y_info.clone()))
         }
 
         if enter_long {
-          if ticker == self.x.id {
-            // signals.push(Signal::ExitLong(x_info.clone()))
-            signals.push(Signal::EnterLong(x_info.clone()))
-          } else if ticker == self.y.id {
-            // todo: do not touch this
-            signals.push(Signal::ExitLong(y_info.clone()))
-          }
+          signals.push(Signal::ExitLong(x_info.clone()));
+          signals.push(Signal::ExitLong(y_info.clone()))
         }
         if enter_short {
-          if ticker == self.x.id {
-            // signals.push(Signal::ExitShort(x_info))
-            signals.push(Signal::EnterShort(x_info))
-          } else if ticker == self.y.id {
-            // todo: do not touch this
-            signals.push(Signal::EnterShort(y_info))
-          }
+          signals.push(Signal::ExitShort(x_info));
+          signals.push(Signal::EnterShort(y_info))
         }
         Ok(signals)
       }
@@ -211,11 +200,11 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   let window = 10;
   let capacity = window + 6;
   let threshold = 2.0;
-  let stop_loss = 10.0;
+  let stop_loss = None; // Some(10.0);
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
@@ -236,7 +225,7 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   )?;
   println!("Spread Hurst Exponent: {}", trunc!(hurst(spread.clone()), 2));
 
-  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), Some(stop_loss));
+  let strat = StatArb::new(capacity, window, threshold, x_ticker.clone(), y_ticker.clone(), stop_loss);
   let mut backtest = Backtest::new(strat, 1000.0, fee, bet, leverage, short_selling);
   // Append to backtest data
   backtest.candles.insert(x_ticker.clone(), x_candles.clone());

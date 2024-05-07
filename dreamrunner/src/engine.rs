@@ -474,7 +474,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   //         } else if entry.status == OrderStatus::Filled {
   //           // entry is filled, place stop loss
   //           info!("Order filled: {:#?}", entry);
-  //           self.check_stop_loss(&all_orders).await?;
+  //           self.manually_check_stop_loss(&all_orders).await?;
   //         }
   //       }
   //       OrderState::Pending(order) => {
@@ -496,7 +496,7 @@ impl<T, S: Strategy<T>> Engine<T, S> {
   // /// If entry is filled and stop loss is pending, then place the stop loss order.
   // /// If stop loss is active, check if it has filled. 
   // /// If stop loss is stale then reset it. If filled then reset the active order.
-  // async fn check_stop_loss(&mut self, all_orders: &[HistoricalOrder]) -> DreamrunnerResult<()> {
+  // async fn manually_check_stop_loss(&mut self, all_orders: &[HistoricalOrder]) -> DreamrunnerResult<()> {
   //   let copy = self.active_order.clone();
   //   if let Some(stop_loss_order) = &copy.stop_loss {
   //     let actual_stop_loss = all_orders

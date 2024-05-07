@@ -190,7 +190,7 @@ impl Summary {
   pub fn max_drawdown(&self, ticker: &str) -> f64 {
     let mut max_dd = 0.0;
     let mut peak = self.cum_pct.get(ticker).unwrap().data().first().unwrap().y;
-  
+
     for point in self.cum_pct.get(ticker).unwrap().data().iter() {
       if point.y > peak {
         peak = point.y;

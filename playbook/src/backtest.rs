@@ -198,8 +198,15 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
       for i in 0..length {
         // Access the i-th element of each vector to simulate getting price update
         // for every ticker at roughly the same time
-        for (ticker, candles) in candles.iter() {
+        let entries = candles.iter().map(|(ticker, candles)| {
+          (ticker.clone(), candles.clone())
+        }).collect::<Vec<(String, Vec<Candle>)>>();
+        for (ticker, candles) in entries.iter() {
           let candle = candles[i];
+          
+          if i == 0 {
+            println!("first: {}", ticker);
+          }
 
           // check if stop loss is hit
           if let (Some(entry), Some(stop_loss_pct)) = (active_trades.get(ticker).unwrap(), self.strategy.stop_loss_pct()) {
@@ -341,13 +348,12 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
             match signal {
               Signal::EnterLong(info) => {
                 // only place if no active trade to prevent pyramiding
-                // todo: allow pyramiding to enable hedging
                 if active_trades.get(&info.ticker).unwrap().is_none() {
                   let trade = Trade {
                     ticker: info.ticker.clone(),
                     date: info.date,
                     side: Order::EnterLong,
-                    quantity: 0.0, // quantity doesn't matter, since exit trade recomputes it
+                    quantity: 0.0, // quantity doesn't matter, since exit trade computes it
                     price: info.price,
                   };
                   active_trades.insert(info.ticker.clone(), Some(trade.clone()));
@@ -359,7 +365,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                     let pct_pnl = (info.price - entry.price) / entry.price * 100.0;
                     let position_size = match self.bet {
                       Bet::Static => static_capital,
-                      Bet::Percent(pct) => *cum_capital.get(ticker).unwrap() * pct / 100.0
+                      Bet::Percent(pct) => *cum_capital.get(&info.ticker).unwrap() * pct / 100.0
                     };
 
                     let quantity = position_size / entry.price;
@@ -374,7 +380,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
                     // fee on trade entry capital
                     let entry_fee = position_size.abs() * (self.fee / 100.0);
-                    let cum_capital = cum_capital.get_mut(ticker).unwrap();
+                    let cum_capital = cum_capital.get_mut(&info.ticker).unwrap();
                     *cum_capital -= entry_fee;
                     // fee on profit made
                     let mut quote_pnl = pct_pnl / 100.0 * position_size;
@@ -382,18 +388,18 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                     quote_pnl -= profit_fee;
 
                     *cum_capital += quote_pnl;
-                    let quote = quote.get_mut(ticker).unwrap();
+                    let quote = quote.get_mut(&info.ticker).unwrap();
                     *quote += quote_pnl;
 
-                    cum_quote.get_mut(ticker).unwrap().push(Data {
+                    cum_quote.get_mut(&info.ticker).unwrap().push(Data {
                       x: entry.date.to_unix_ms(),
                       y: trunc!(*quote, 2)
                     });
-                    cum_pct.get_mut(ticker).unwrap().push(Data {
+                    cum_pct.get_mut(&info.ticker).unwrap().push(Data {
                       x: entry.date.to_unix_ms(),
                       y: trunc!(*cum_capital / initial_capital * 100.0 - 100.0, 2)
                     });
-                    pct_per_trade.get_mut(ticker).unwrap().push(Data {
+                    pct_per_trade.get_mut(&info.ticker).unwrap().push(Data {
                       x: entry.date.to_unix_ms(),
                       y: trunc!(pct_pnl, 2)
                     });
@@ -427,16 +433,16 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
               },
               Signal::ExitShort(info) => {
                 if let Some(entry) = active_trades.get(&info.ticker).unwrap() {
-                  if entry.side == Order::EnterShort && self.short_selling { 
+                  if entry.side == Order::EnterShort && self.short_selling {
                     let pct_pnl = (info.price - entry.price) / entry.price * -1.0 * 100.0;
                     let position_size = match self.bet {
                       Bet::Static => static_capital,
-                      Bet::Percent(pct) => *cum_capital.get(ticker).unwrap() * pct / 100.0
+                      Bet::Percent(pct) => *cum_capital.get(&info.ticker).unwrap() * pct / 100.0
                     };
 
                     let quantity = position_size / entry.price;
                     let updated_entry = Trade {
-                      ticker: ticker.clone(),
+                      ticker: info.ticker.clone(),
                       date: entry.date,
                       side: entry.side,
                       quantity,
@@ -446,7 +452,7 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
 
                     // fee on trade entry capital
                     let entry_fee = position_size.abs() * (self.fee / 100.0);
-                    let cum_capital = cum_capital.get_mut(ticker).unwrap();
+                    let cum_capital = cum_capital.get_mut(&info.ticker).unwrap();
                     *cum_capital -= entry_fee;
                     // fee on profit made
                     let mut quote_pnl = pct_pnl / 100.0 * position_size;
@@ -454,18 +460,18 @@ impl<T, S: Strategy<T>> Backtest<T, S> {
                     quote_pnl -= profit_fee;
 
                     *cum_capital += quote_pnl;
-                    let quote = quote.get_mut(ticker).unwrap();
+                    let quote = quote.get_mut(&info.ticker).unwrap();
                     *quote += quote_pnl;
 
-                    cum_quote.get_mut(ticker).unwrap().push(Data {
+                    cum_quote.get_mut(&info.ticker).unwrap().push(Data {
                       x: entry.date.to_unix_ms(),
                       y: trunc!(*quote, 2)
                     });
-                    cum_pct.get_mut(ticker).unwrap().push(Data {
+                    cum_pct.get_mut(&info.ticker).unwrap().push(Data {
                       x: entry.date.to_unix_ms(),
                       y: trunc!(*cum_capital / initial_capital * 100.0 - 100.0, 2)
                     });
-                    pct_per_trade.get_mut(ticker).unwrap().push(Data {
+                    pct_per_trade.get_mut(&info.ticker).unwrap().push(Data {
                       x: entry.date.to_unix_ms(),
                       y: trunc!(pct_pnl, 2)
                     });
