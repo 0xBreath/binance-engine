@@ -69,11 +69,9 @@ impl StatArb {
 
         // compare lagged spread
         let x_0 = self.x.vec[0].clone();
-        // let x: Vec<f64> = self.x.vec.par_iter().map(|d| d.y()).collect();
         let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
 
         let y_0 = self.y.vec[0].clone();
-        // let y: Vec<f64> = self.y.vec.par_iter().map(|d| d.y()).collect();
         let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
 
         let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
@@ -81,7 +79,7 @@ impl StatArb {
         )?;
         assert_eq!(spread.len(), y.len());
         assert_eq!(spread.len(), x.len());
-        let lag_spread = spread[..spread.len()-1].to_vec();
+        let lag_spread = spread[..spread.len() - 1].to_vec();
 
         let z_0 = Data {
           x: x_0.x(),
@@ -96,8 +94,6 @@ impl StatArb {
         let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
         let enter_short = z_0.y() > self.zscore_threshold;
         let exit_short = z_0.y() < 0.0 && z_1.y() > 0.0;
-        // let enter_short = exit_long;
-        // let exit_short = enter_long;
 
         let x_info = SignalInfo {
           price: x_0.y(),
