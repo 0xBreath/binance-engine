@@ -568,8 +568,14 @@ impl<T, S: Strategy<T>> Engine<T, S> {
             // using updated entry, check if order hasn't filled within 10 minutes
             self.reset_if_stale(entry, false).await?;
           } else if entry.status == OrderStatus::Filled {
-            // entry is filled, place stop loss
-            info!("🟢 Entry order filled: {:#?}", entry);
+            // entry/exit is filled, place stop loss
+            if entry.side == Side::Long {
+              info!("🟢 Entry order filled: {:#?}", entry);
+              self.check_stop_loss().await?;
+            } else {
+              info!("🔴 Exit order filled: {:#?}", entry);
+              self.reset_active_order().await?;
+            }
             self.check_stop_loss().await?;
           }
         }
