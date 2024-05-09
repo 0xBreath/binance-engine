@@ -97,7 +97,7 @@ impl Dataframe {
     }).collect());
     Ok(x)
   }
-  
+
   pub fn lagged_spread_series<T: X + Y>(series: &[T]) -> anyhow::Result<Dataset<i64, f64>> {
     let mut series = series.to_vec();
     series.sort_by_key(|c| c.x());

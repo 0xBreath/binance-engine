@@ -75,14 +75,17 @@ impl StatArb {
         }
 
         // compare spread
-        let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
-        let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
+        // let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
+        // let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
+        let x = Dataset::new(self.x.vec());
+        let y = Dataset::new(self.y.vec());
 
         let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
           |e| anyhow::anyhow!("Error calculating spread: {}", e)
         )?;
         assert_eq!(spread.len(), y.len());
         assert_eq!(spread.len(), x.len());
+        let spread = spread[1..spread.len()].to_vec();
         let lag_spread = spread[..spread.len() - 1].to_vec();
 
         let z_0 = Data {
@@ -95,7 +98,8 @@ impl StatArb {
         };
 
         let enter_long = z_0.y() < -self.zscore_threshold;
-        let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
+        let exit_long = z_0.y() > self.zscore_threshold;
+        // let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
         // let enter_long = z_0.y() < -self.zscore_threshold;
         // let exit_long = z_0.y() > self.zscore_threshold;
 
@@ -196,15 +200,15 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
-
-  let window = 10;
-  let capacity = window + 6;
+ 
+  let window = 20;
+  let capacity = window + 2;
   let threshold = 2.0;
   let stop_loss = None; // Some(10.0);
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = true;
+  let short_selling = false;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
@@ -250,14 +254,6 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-
-      // Plot::plot(
-      //   vec![summary.pct_per_trade(&x_ticker)?.data().clone()],
-      //   "stat_arb_btc_30m_trades.png",
-      //   &format!("{} Stat Arb Trades", x_ticker),
-      //   "% ROI",
-      //   "Unix Millis"
-      // )?;
     }
   }
   if let Some(trades) = backtest.trades.get(&y_ticker) {
@@ -274,16 +270,144 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
         "% ROI",
         "Unix Millis"
       )?;
-
-      // Plot::plot(
-      //   vec![summary.pct_per_trade(&y_ticker)?.data().clone()],
-      //   "stat_arb_eth_30m_trades.png",
-      //   &format!("{} Stat Arb Trades", y_ticker),
-      //   "% ROI",
-      //   "Unix Millis"
-      // )?;
     }
   }
+
+  Ok(())
+}
+
+#[tokio::test]
+async fn btc_eth_30m_spread_attributes() -> anyhow::Result<()> {
+  use super::*;
+  dotenv::dotenv().ok();
+
+  let start_time = Time::new(2024, &Month::from_num(4), &Day::from_num(29), None, None, None);
+  let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
+  
+  let x_ticker = "BTCUSDT".to_string();
+  let y_ticker = "ETHUSDT".to_string();
+  
+  let btc_csv = PathBuf::from("btcusdt_30m.csv");
+  let mut x_candles = Dataframe::csv_series(&btc_csv, Some(start_time), Some(end_time), x_ticker.clone())?.candles;
+  let eth_csv = PathBuf::from("ethusdt_30m.csv");
+  let mut y_candles = Dataframe::csv_series(&eth_csv, Some(start_time), Some(end_time), y_ticker.clone())?.candles;
+
+  Dataframe::align_pair_series(&mut x_candles, &mut y_candles)?;
+
+  // normalize data using percent change from first price in time series
+  let x = Dataframe::normalize_series::<Candle>(x_candles.as_slice())?;
+  let y = Dataframe::normalize_series::<Candle>(y_candles.as_slice())?;
+  assert_eq!(x.len(), y.len());
+
+  // discover spread attribution (how much x and/or y contributed to the change in spread)
+  let hedge_ratio: Vec<f64> = dynamic_hedge_kalman_filter(&x.y(), &y.y()).unwrap();
+  println!("hedge ratio len: {}", hedge_ratio.len());
+  assert_eq!(hedge_ratio.len(), x.len());
+  assert_eq!(hedge_ratio.len(), y.len());
+  assert_eq!(x.len(), y.len());
+
+  let hedge_ratio = Dataset::new(hedge_ratio.iter().enumerate().map(|(i, y)| {
+    Data { x: x.x()[i], y: *y }
+  }).collect());
+
+  let mut y_pos_attr = vec![];
+  let mut y_neg_attr = vec![];
+  let mut y_signed_attr = vec![];
+  let mut hx_pos_attr = vec![];
+  let mut hx_neg_attr = vec![];
+  let mut hx_signed_attr = vec![];
+  let mut y_diffs = vec![];
+  let mut hx_diffs = vec![];
+  let mut s_diffs = vec![];
+
+  for ((x_window, y_window), hr_window)
+  in x.data().clone().windows(2)
+      .zip(y.data().clone().windows(2))
+      .zip(hedge_ratio.data().clone().windows(2)) {
+
+    let x1 = x_window[0].clone();
+    let x = x_window[1].clone();
+    let y1 = y_window[0].clone();
+    let y = y_window[1].clone();
+    let hr1 = hr_window[0].clone();
+    let hr = hr_window[1].clone();
+    let date = x.x(); // equal to y.date and hr.date
+
+    // hx is -hedge_ratio * x
+    let hx1 = -hr1.y() * x1.y();
+    let hx = -hr.y() * x.y();
+    // spread = y - hedge_ratio * x
+    let s1 = y1.y() - hx1;
+    let s = y.y() - hx;
+    let ds = s - s1;
+    // change due to "x" is really -hedge_ratio * x
+    let dhx = hx - hx1;
+    let dy = y.y() - y1.y();
+    
+    let sign = if ds > 0.0 {1.0} else {-1.0};
+    
+    // determine change in spread due to change in x and y as percentage
+    let cumd = dy.abs() + dhx.abs();
+    let y_pct = dy.abs() / cumd * 100.0;
+    let hx_pct = dhx.abs() / cumd * 100.0;
+
+    y_signed_attr.push(Data { x: date, y: y_pct * sign });
+    if sign == 1.0 {
+      y_pos_attr.push(Data { x: date, y: y_pct });
+    } else {
+      y_neg_attr.push(Data { x: date, y: y_pct });
+    }
+    hx_signed_attr.push(Data { x: date, y: hx_pct * sign });
+    if sign == 1.0 {
+      hx_pos_attr.push(Data { x: date, y: hx_pct });
+    } else {
+      hx_neg_attr.push(Data { x: date, y: hx_pct });
+    }
+    y_diffs.push(Data { x: date, y: dy });
+    hx_diffs.push(Data { x: date, y: dhx });
+    s_diffs.push(Data { x: date, y: ds });
+  }
+
+  // blue is y_attr, red is hx_attr
+  Plot::plot(
+    vec![y_signed_attr, hx_signed_attr],
+    "btc_eth_signed_attributes.png",
+    "BTC & ETH Spread Attribution",
+    "% Attribution",
+    "Unix Millis"
+  )?;
+  Plot::plot(
+    vec![y_pos_attr, hx_pos_attr],
+    "btc_eth_pos_attributes.png",
+    "BTC & ETH Spread Attribution",
+    "% Attribution",
+    "Unix Millis"
+  )?;
+  Plot::plot(
+    vec![y_neg_attr, hx_neg_attr],
+    "btc_eth_neg_attributes.png",
+    "BTC & ETH Spread Attribution",
+    "% Attribution",
+    "Unix Millis"
+  )?;
+  // blue is y_diffs, red is hx_diffs, green is s_diffs
+  Plot::plot(
+    vec![y_diffs, hx_diffs, s_diffs],
+    "btc_eth_diffs.png",
+    "BTC & ETH Spread Diffs",
+    "Change",
+    "Unix Millis"
+  )?;
+
+  // blue is ETH, red is BTC
+  Plot::plot(
+    vec![y.data().clone(), x.data().clone()],
+    "btc_eth_normalized.png",
+    "BTC & ETH Normalized Prices",
+    "% Change from Origin",
+    "Unix Millis"
+  )?;
+
 
   Ok(())
 }
@@ -308,8 +432,8 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
 
   Dataframe::align_pair_series(&mut x_candles, &mut y_candles)?;
   // Append to backtest data
-  backtest.candles.insert(x_ticker.clone(), x_candles);
-  backtest.candles.insert(y_ticker.clone(), y_candles);
+  backtest.candles.insert(x_ticker.clone(), x_candles.clone());
+  backtest.candles.insert(y_ticker.clone(), y_candles.clone());
 
   println!("Backtest BTC candles: {}", backtest.candles.get(&x_ticker).unwrap().len());
   println!("Backtest ETH candles: {}", backtest.candles.get(&y_ticker).unwrap().len());
@@ -326,7 +450,7 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
     "Percent from Origin",
     "Unix Millis"
   )?;
-
+  
   let correlation = rolling_correlation(&x.y(), &y.y(), window).map_err(
     |e| anyhow::anyhow!("Error calculating rolling correlation: {}", e)
   )?;
@@ -340,7 +464,7 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
     "Correlation",
     "Time"
   )?;
-
+  
   let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
     |e| anyhow::anyhow!("Error calculating spread: {}", e)
   )?;
@@ -355,7 +479,7 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
     "Spread",
     "Unix Millis"
   )?;
-
+  
   assert_eq!(spread.len(), y.len());
   assert_eq!(spread.len(), x.len());
   let zscore: Vec<f64> = rolling_zscore(&spread, window).unwrap();
@@ -369,45 +493,10 @@ async fn btc_eth_30m_spread() -> anyhow::Result<()> {
     "Z Score",
     "Time"
   )?;
-
+  
   let half_life: f64 = half_life(&spread).unwrap();
   let half_life = half_life.abs().round() as usize;
   println!("Spread half life: {} bars", half_life);
-
-  // compare lagged spread
-  let x_lag_spread = Dataframe::lagged_spread_series::<Candle>(
-    backtest.candles.get(&x_ticker).unwrap()
-  )?;
-  let y_lag_spread = Dataframe::lagged_spread_series::<Candle>(
-    backtest.candles.get(&y_ticker).unwrap()
-  )?;
-  // take the ratio of each index in the spread series
-  let lag_spread_ratio: Dataset<i64, f64> = Dataset::new(x_lag_spread.data().iter().zip(y_lag_spread.data().iter()).flat_map(|(x, y)| {
-    if y.y() == 0.0 {
-      None
-    } else {
-      Some(Data {
-        x: x.x(),
-        y: x.y() / y.y()
-      })
-    }
-  }).collect());
-  let zscore: Dataset<i64, f64> = Dataset::new(rolling_zscore(&lag_spread_ratio.y(), 100).unwrap().into_iter().enumerate().map(|(i, z)| {
-    Data {
-      x: lag_spread_ratio.x()[i],
-      y: z
-    }
-  }).collect());
-
-  Plot::plot(
-    // vec![x_lag_spread.data().clone(), y_lag_spread.data().clone()],
-    // vec![lag_spread_ratio],
-    vec![zscore.data().clone()],
-    "btc_eth_30m_lag_spread.png",
-    "BTC & ETH Lagged Spread",
-    "% Spread",
-    "Unix Millis"
-  )?;
 
   Ok(())
 }
