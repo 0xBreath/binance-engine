@@ -31,4 +31,12 @@ impl<T: Clone> DataCache<T> {
   pub fn vec(&self) -> Vec<T> {
     self.vec.iter().rev().cloned().collect::<Vec<T>>()
   }
+  
+  pub fn len(&self) -> usize {
+    self.vec.len()
+  }
+  
+  pub fn is_empty(&self) -> bool {
+    self.vec.is_empty()
+  }
 }

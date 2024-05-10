@@ -75,18 +75,23 @@ impl StatArb {
         }
 
         // compare spread
-        // let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
-        // let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
-        let x = Dataset::new(self.x.vec());
-        let y = Dataset::new(self.y.vec());
+        let x = Dataframe::normalize_series::<Data<i64, f64>>(&self.x.vec())?;
+        let y = Dataframe::normalize_series::<Data<i64, f64>>(&self.y.vec())?;
+        assert_eq!(x.len(), self.x.len());
+        assert_eq!(y.len(), self.y.len());
 
-        let spread: Vec<f64> = spread_dynamic(&x.y(), &y.y()).map_err(
+        let spread: Vec<f64> = spread_standard(&x.y(), &y.y()).map_err(
           |e| anyhow::anyhow!("Error calculating spread: {}", e)
         )?;
         assert_eq!(spread.len(), y.len());
         assert_eq!(spread.len(), x.len());
-        let spread = spread[1..spread.len()].to_vec();
-        let lag_spread = spread[..spread.len() - 1].to_vec();
+        
+        let lag_spread = spread[..spread.len()-1].to_vec();
+        let spread = spread[1..].to_vec();
+        
+        assert_eq!(spread.len(), lag_spread.len());
+        assert_eq!(lag_spread.len(), self.window);
+        assert_eq!(spread.len(), self.window);
 
         let z_0 = Data {
           x: x_0.x(),
@@ -98,15 +103,13 @@ impl StatArb {
         };
 
         let enter_long = z_0.y() < -self.zscore_threshold;
-        let exit_long = z_0.y() > self.zscore_threshold;
         // let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
-        // let enter_long = z_0.y() < -self.zscore_threshold;
-        // let exit_long = z_0.y() > self.zscore_threshold;
+        let exit_long = z_0.y() > self.zscore_threshold;
 
-        let enter_short = z_0.y() > self.zscore_threshold;
-        let exit_short = z_0.y() < 0.0 && z_1.y() > 0.0;
-        // let enter_short = exit_long;
-        // let exit_short = enter_long;
+        // let enter_short = z_0.y() > self.zscore_threshold;
+        // let exit_short = z_0.y() < 0.0 && z_1.y() > 0.0;
+        let enter_short = exit_long;
+        let exit_short = enter_long;
 
         let x_info = SignalInfo {
           price: x_0.y(),
@@ -201,14 +204,14 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
  
-  let window = 20;
-  let capacity = window + 2;
+  let window = 9;
+  let capacity = window + 1;
   let threshold = 2.0;
-  let stop_loss = None; // Some(10.0);
+  let stop_loss = None;
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
-  let short_selling = false;
+  let short_selling = true;
 
   let x_ticker = "BTCUSDT".to_string();
   let y_ticker = "ETHUSDT".to_string();
