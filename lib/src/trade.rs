@@ -100,7 +100,8 @@ impl Timestamp for OrderState {
 #[derive(Debug, Clone, Default)]
 pub struct ActiveOrder {
   pub entry: Option<OrderState>,
-  pub stop_loss: Option<OrderState>
+  pub stop_loss: Option<OrderState>,
+  pub stop_loss_placed: bool
 }
 
 impl ActiveOrder {
@@ -127,5 +128,6 @@ impl ActiveOrder {
   pub fn reset(&mut self) {
     self.entry = None;
     self.stop_loss = None;
+    self.stop_loss_placed = false;
   }
 }

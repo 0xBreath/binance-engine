@@ -85,10 +85,10 @@ impl StatArb {
         )?;
         assert_eq!(spread.len(), y.len());
         assert_eq!(spread.len(), x.len());
-        
+
         let lag_spread = spread[..spread.len()-1].to_vec();
         let spread = spread[1..].to_vec();
-        
+
         assert_eq!(spread.len(), lag_spread.len());
         assert_eq!(lag_spread.len(), self.window);
         assert_eq!(spread.len(), self.window);
@@ -102,14 +102,17 @@ impl StatArb {
           y: Self::zscore(&lag_spread, self.window)?
         };
 
-        let enter_long = z_0.y() < -self.zscore_threshold;
+        // original
+        // let enter_long = z_0.y() < -self.zscore_threshold;
         // let exit_long = z_0.y() > 0.0 && z_1.y() < 0.0;
-        let exit_long = z_0.y() > self.zscore_threshold;
-
         // let enter_short = z_0.y() > self.zscore_threshold;
         // let exit_short = z_0.y() < 0.0 && z_1.y() > 0.0;
-        let enter_short = exit_long;
-        let exit_short = enter_long;
+
+        // good
+        let exit_long = z_0.y() < -self.zscore_threshold;
+        let enter_long = z_0.y() > self.zscore_threshold;
+        let exit_short = exit_long;
+        let enter_short = enter_long;
 
         let x_info = SignalInfo {
           price: x_0.y(),
@@ -126,21 +129,21 @@ impl StatArb {
 
         // process exits before any new entries
         if exit_long {
-          signals.push(Signal::EnterLong(x_info.clone()));
-          signals.push(Signal::EnterLong(y_info.clone()))
+          signals.push(Signal::ExitLong(x_info.clone()));
+          signals.push(Signal::ExitLong(y_info.clone()))
         }
         if exit_short {
-          // signals.push(Signal::EnterShort(x_info.clone()));
+          signals.push(Signal::ExitShort(x_info.clone()));
           signals.push(Signal::ExitShort(y_info.clone()))
         }
 
         if enter_long {
-          signals.push(Signal::ExitLong(x_info.clone()));
-          signals.push(Signal::ExitLong(y_info.clone()))
+          signals.push(Signal::EnterLong(x_info.clone()));
+          signals.push(Signal::EnterLong(y_info.clone()))
         }
         if enter_short {
-          // signals.push(Signal::ExitShort(x_info));
-          signals.push(Signal::EnterShort(y_info))
+          signals.push(Signal::EnterShort(x_info.clone()));
+          signals.push(Signal::EnterShort(y_info.clone()))
         }
         Ok(signals)
       }
@@ -203,11 +206,11 @@ async fn btc_eth_30m_stat_arb() -> anyhow::Result<()> {
 
   let start_time = Time::new(2023, &Month::from_num(1), &Day::from_num(1), None, None, None);
   let end_time = Time::new(2024, &Month::from_num(4), &Day::from_num(30), None, None, None);
- 
+
   let window = 9;
   let capacity = window + 1;
   let threshold = 2.0;
-  let stop_loss = None;
+  let stop_loss = Some(5.0);
   let fee = 0.02;
   let bet = Bet::Percent(100.0);
   let leverage = 1;
