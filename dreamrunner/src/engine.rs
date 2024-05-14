@@ -183,9 +183,9 @@ impl<T, S: Strategy<T>> Engine<T, S> {
       self.ticker.to_string(),
       format!("{}-{}", timestamp, "ENTRY"),
       entry_side,
-      OrderType::Limit,
+      OrderType::Market, // OrderType::Limit,
       entry_qty,
-      Some(limit),
+      None, // Some(limit),
       None,
       Time::now().to_unix_ms(),
       None,
@@ -203,9 +203,9 @@ impl<T, S: Strategy<T>> Engine<T, S> {
           self.ticker.to_string(),
           format!("{}-{}", timestamp, "STOP_LOSS"),
           stop_loss_side,
-          OrderType::StopLossLimit,
+          OrderType::StopLoss, //OrderType::StopLossLimit,
           entry_qty,
-          Some(limit), // stop order is triggered at entry to start tracking immediately
+          None, // Some(limit), // stop order is triggered at entry to start tracking immediately
           None,
           Time::now().to_unix_ms(),
           Some(stop_price), // stop order exists at the stop loss
