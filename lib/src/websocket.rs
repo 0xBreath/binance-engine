@@ -193,7 +193,7 @@ impl WebSockets {
         if hours_since_ping > 8 || !self.is_connected.load(Ordering::Relaxed) {
             match self.user_stream.keep_alive(&self.listen_key).await {
                 Err(e) => {
-                    error!("🛑Error on user stream keep alive: {}", e);
+                    error!("🛑 Error on user stream keep alive: {}", e);
                     self.user_stream.close(&self.listen_key).await?;
                     self.is_connected.store(false, Ordering::Relaxed);
                 },
